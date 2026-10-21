@@ -1,0 +1,14 @@
+{
+  "name": "footypal",
+  "private": true,
+  "version": "1.0.0-dev",
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace @footypal/backend",
+    "build": "npm run build --workspaces --if-present",
+    "start": "npm run start --workspace @footypal/backend"
+  }
+}
