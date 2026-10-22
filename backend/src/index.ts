@@ -3,8 +3,7 @@ import { SUPPORTED_LEAGUES } from "./constants.js";
 import type { ITeam } from "./interfaces.js";
 import type { IEspnTeamResponse, IEspnTeamDetailResponse } from "./espn-interfaces.js";
 
-const app = express();
-const port = Number(process.env.PORT ?? 3000);
+export const app = express();
 
 app.use(express.json());
 
@@ -111,6 +110,3 @@ app.get("/health", (_req, res) => {
     res.json({ status: "ok" });
 });
 
-app.listen(port, () => {
-    console.log(`FootyPal API listening on port ${port}`);
-});
