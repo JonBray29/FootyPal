@@ -23,10 +23,21 @@ export const app = express();
 app.use(express.json());
 app.use("/health", healthRouter);
 
+/**
+ * GET /api/leagues
+ * Lists the domestic leagues supported by FootyPal.
+ * Returns an array of { name, slug, ref }; use the slug to request a league's teams.
+ */
 app.get("/api/leagues", (_req, res) => {
     res.json(SUPPORTED_LEAGUES);
 });
 
+/**
+ * GET /api/leagues/:slug/teams
+ * Fetches teams for a supported ESPN league slug, such as eng.1.
+ * Returns an array of { id, name, abbreviation, logos }; IDs are numeric strings.
+ * Returns 404 for an unsupported league and 502 if ESPN cannot supply the data.
+ */
 app.get("/api/leagues/:slug/teams", async (req, res) => {
     const league = SUPPORTED_LEAGUES.find(({ slug }) => slug === req.params.slug);
 
@@ -73,6 +84,14 @@ app.get("/api/leagues/:slug/teams", async (req, res) => {
     }
 });
 
+/**
+ * GET /api/teams/:teamId
+ * Fetches a team's profile, branding, venue, league standings and season fixtures.
+ * Returns compact home/away team objects in previousMatches, upcomingFixtures and
+ * liveGame. Completed/live matches include available scores; liveGame is otherwise null.
+ * Previous matches are newest first; upcoming fixtures are soonest first.
+ * Returns 400 for a nonnumeric ID, 404 for a missing team and 502 for ESPN failures.
+ */
 app.get("/api/teams/:teamId", async (req, res) => {
     if (!/^\d+$/.test(req.params.teamId)) {
         res.status(400).json({ error: "Team ID must be numeric" });
@@ -267,6 +286,13 @@ app.get("/api/teams/:teamId", async (req, res) => {
     }
 });
 
+/**
+ * GET /api/game/:eventId
+ * Fetches a match by numeric ESPN event ID without requiring a league parameter.
+ * Returns teams, scores, competition, status/clock, venue, statistics and a goals/cards
+ * timeline. Missing optional values are null; scheduled games have null scores.
+ * Returns 400 for a nonnumeric ID, 404 for a missing game and 502 for ESPN failures.
+ */
 app.get("/api/game/:eventId", async (req, res) => {
     if (!/^[0-9]+$/.test(req.params.eventId)) {
         res.status(400).json({ error: "Event ID must be numeric" });

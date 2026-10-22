@@ -1,3 +1,12 @@
+export interface IHealthResponse {
+  status: 'ok' | 'degraded';
+  checks: {
+    api: 'ok';
+    espnCore: 'ok' | 'unavailable';
+    espnSite: 'ok' | 'unavailable';
+  };
+}
+
 export interface ILeague {
   name: string;
   /** ESPN's league slug, used as the league identifier in other ESPN endpoints. */

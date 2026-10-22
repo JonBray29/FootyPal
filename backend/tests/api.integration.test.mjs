@@ -35,7 +35,7 @@ describe('API routes', () => {
   test('GET /health returns healthy status', async () => {
     const response = await fetch(`${baseUrl}/health`);
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ status: 'ok' });
+    expect(await response.json()).toEqual({ status: 'ok', checks: { api: 'ok', espnCore: 'ok', espnSite: 'ok' } });
   });
 
   test('GET /api/leagues returns every configured league', async () => {
