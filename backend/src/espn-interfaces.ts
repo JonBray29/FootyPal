@@ -18,6 +18,37 @@ interface IEspnTeamEntry {
 
 export interface IEspnTeamDetailResponse extends IEspnTeam {}
 
+export interface IEspnScheduleResponse {
+  events?: IEspnScheduleEvent[];
+}
+
+export interface IEspnScheduleEvent {
+  id: string;
+  date?: string;
+  competitions?: IEspnScheduleCompetition[];
+}
+
+export interface IEspnScheduleCompetition {
+  status?: { type?: { completed?: boolean; state?: string } };
+  competitors?: IEspnScheduleCompetitor[];
+}
+
+export interface IEspnScheduleCompetitor {
+  id?: string;
+  homeAway?: string;
+  score?: string | number | { value?: number };
+}
+
+export interface IEspnTeamEventsResponse {
+  items?: { $ref: string }[];
+}
+
+export interface IEspnCoreEventResponse {
+  id: string;
+  date?: string;
+  competitions?: { competitors?: { id?: string; homeAway?: string }[] }[];
+}
+
 export interface IEspnStandingsResponse {
   children?: IEspnStandingsGroup[];
   standings?: IEspnStandingsTable;
@@ -57,6 +88,7 @@ interface IEspnTeam {
   defaultLeague?: { $ref?: string };
   record?: { $ref?: string };
   events?: { $ref?: string };
+  nextEvent?: IEspnScheduleEvent[];
 }
 
 interface IEspnVenue {

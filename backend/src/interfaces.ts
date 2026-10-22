@@ -8,13 +8,22 @@ export interface ILeague {
 
 export interface ITeamLogo {
   href: string;
+  rel?: string[];
   [key: string]: unknown;
 }
 
 export interface ITeam {
   id: string;
   name: string;
+  abbreviation: string | null;
   logos: ITeamLogo[];
+}
+
+export interface ITeamSimple {
+  id: string;
+  name: string;
+  abbreviation: string | null;
+  logo: string | null;
 }
 
 export enum LeaguePositionType {
@@ -40,6 +49,15 @@ export interface ILeagueStanding {
   goalsAgainst: number;
   goalDifference: number;
   points: number;
+}
+
+export interface ITeamFixture {
+  eventId: string;
+  date: string | null;
+  homeTeam: ITeamSimple;
+  awayTeam: ITeamSimple;
+  homeTeamGoals?: number;
+  awayTeamGoals?: number;
 }
 
 export interface ITeamLink {

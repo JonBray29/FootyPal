@@ -41,6 +41,23 @@ describe('API routes', () => {
     expect(await response.json()).toEqual({ error: 'Team ID must be numeric' });
   });
 
+  test('GET /api/teams/374 includes the available upcoming fixture', async () => {
+    const response = await fetch(`${baseUrl}/api/teams/374`);
+    expect(response.status).toBe(200);
+    const team = await response.json();
+    expect(team.upcomingFixtures.length).toBeGreaterThan(1);
+    for (const fixture of team.upcomingFixtures) {
+      expect(fixture.homeTeam.id).toEqual(expect.any(String));
+      expect(fixture.homeTeam.name).toEqual(expect.any(String));
+      expect(fixture.homeTeam.abbreviation === null || typeof fixture.homeTeam.abbreviation === 'string').toBe(true);
+      expect(fixture.homeTeam.logo === null || typeof fixture.homeTeam.logo === 'string').toBe(true);
+      expect(fixture.awayTeam.id).toEqual(expect.any(String));
+      expect(fixture.awayTeam.name).toEqual(expect.any(String));
+      expect(fixture.homeTeamGoals).toBeUndefined();
+      expect(fixture.awayTeamGoals).toBeUndefined();
+    }
+  });
+
   test('GET /api/teams/:teamId returns 404 for an unknown team', async () => {
     const response = await fetch(`${baseUrl}/api/teams/999999999`);
     expect(response.status).toBe(404);
