@@ -18,6 +18,26 @@ interface IEspnTeamEntry {
 
 export interface IEspnTeamDetailResponse extends IEspnTeam {}
 
+export interface IEspnStandingsResponse {
+  children?: IEspnStandingsGroup[];
+  standings?: IEspnStandingsTable;
+}
+
+interface IEspnStandingsGroup {
+  children?: IEspnStandingsGroup[];
+  standings?: IEspnStandingsTable;
+}
+
+interface IEspnStandingsTable {
+  entries?: IEspnStandingEntry[];
+}
+
+interface IEspnStandingEntry {
+  team?: { displayName?: string; name?: string };
+  note?: { description?: string; rank?: number };
+  stats?: { name?: string; value?: number }[];
+}
+
 interface IEspnTeam {
   id?: string;
   name?: string;

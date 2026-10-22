@@ -17,6 +17,31 @@ export interface ITeam {
   logos: ITeamLogo[];
 }
 
+export enum LeaguePositionType {
+  NONE = "NONE",
+  CHAMPIONS_LEAGUE = "CHAMPIONS_LEAGUE",
+  EUROPA_LEAGUE = "EUROPA_LEAGUE",
+  CONFERENCE_LEAGUE = "CONFERENCE_LEAGUE",
+  PROMOTION = "PROMOTION",
+  PLAYOFF = "PLAYOFF",
+  RELEGATION = "RELEGATION",
+  OTHER = "OTHER",
+}
+
+export interface ILeagueStanding {
+  position: number;
+  positionType: LeaguePositionType;
+  teamName: string;
+  gamesPlayed: number;
+  won: number;
+  drew: number;
+  lost: number;
+  goalsFor: number;
+  goalsAgainst: number;
+  goalDifference: number;
+  points: number;
+}
+
 export interface ITeamLink {
   href: string;
   text?: string;

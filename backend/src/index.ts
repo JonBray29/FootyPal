@@ -1,7 +1,7 @@
 import express from "express";
 import { SUPPORTED_LEAGUES } from "./constants.js";
-import type { ITeam } from "./interfaces.js";
-import type { IEspnTeamResponse, IEspnTeamDetailResponse } from "./espn-interfaces.js";
+import { LeaguePositionType, type ILeagueStanding, type ITeam } from "./interfaces.js";
+import type { IEspnTeamResponse, IEspnTeamDetailResponse, IEspnStandingsResponse } from "./espn-interfaces.js";
 
 export const app = express();
 
@@ -70,6 +70,53 @@ app.get("/api/teams/:teamId", async (req, res) => {
         if (!team?.id) throw new Error("Invalid ESPN team details");
         const color = (value?: string) => (value && /^[0-9a-f]{6}$/i.test(value) ? `#${value}` : null);
 
+    const leagueSlug = team.defaultLeague?.$ref?.match(/\/leagues\/([^/?]+)/)?.[1];
+    let standings: ILeagueStanding[] = [];
+    if (leagueSlug) {
+        const standingsResponse = await fetch(
+            `https://site.api.espn.com/apis/v2/sports/soccer/${encodeURIComponent(leagueSlug)}/standings`,
+            { signal: AbortSignal.timeout(10000) }
+        );
+        if (!standingsResponse.ok) throw new Error("ESPN league standings failed");
+        const standingsData: IEspnStandingsResponse = await standingsResponse.json();
+        const groups = standingsData.children?.flatMap((group) => [group, ...(group.children ?? [])]) ?? [];
+        const entries = [
+            ...(standingsData.standings?.entries ?? []),
+            ...groups.flatMap((group) => group.standings?.entries ?? [])
+        ];
+        const positionType = (description?: string): LeaguePositionType => {
+            if (!description) return LeaguePositionType.NONE;
+            const text = description.toLowerCase();
+            if (text.includes("relegat")) return LeaguePositionType.RELEGATION;
+            if (text.includes("champions league")) return LeaguePositionType.CHAMPIONS_LEAGUE;
+            if (text.includes("europa league")) return LeaguePositionType.EUROPA_LEAGUE;
+            if (text.includes("conference league")) return LeaguePositionType.CONFERENCE_LEAGUE;
+            if (text.includes("playoff") || text.includes("play-off")) return LeaguePositionType.PLAYOFF;
+            if (text.includes("promotion")) return LeaguePositionType.PROMOTION;
+            return LeaguePositionType.OTHER;
+        };
+        const statValue = (entry: (typeof entries)[number], name: string) =>
+            entry.stats?.find((stat) => stat.name === name)?.value ?? 0;
+        standings = entries.flatMap((entry) => {
+            const teamName = entry.team?.displayName ?? entry.team?.name;
+            const position = entry.note?.rank ?? statValue(entry, "rank");
+            if (!teamName || !position) return [];
+            return [{
+                position,
+                positionType: positionType(entry.note?.description),
+                teamName,
+                gamesPlayed: statValue(entry, "gamesPlayed"),
+                won: statValue(entry, "wins"),
+                drew: statValue(entry, "ties"),
+                lost: statValue(entry, "losses"),
+                goalsFor: statValue(entry, "pointsFor"),
+                goalsAgainst: statValue(entry, "pointsAgainst"),
+                goalDifference: statValue(entry, "pointDifferential"),
+                points: statValue(entry, "points")
+            }];
+        });
+    }
+
         res.json({
             id: team.id,
             name: team.displayName ?? team.name ?? null,
@@ -92,6 +139,7 @@ app.get("/api/teams/:teamId", async (req, res) => {
             leagueRef: team.defaultLeague?.$ref ?? null,
             recordRef: team.record?.$ref ?? null,
             eventsRef: team.events?.$ref ?? null,
+            standings,
             links:
                 team.links
                     ?.filter(
