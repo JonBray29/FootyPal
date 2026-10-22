@@ -69,7 +69,7 @@ interface IEspnStandingEntry {
   stats?: { name?: string; value?: number }[];
 }
 
-interface IEspnTeam {
+export interface IEspnTeam {
   id?: string;
   name?: string;
   displayName?: string;
@@ -78,6 +78,7 @@ interface IEspnTeam {
   nickname?: string;
   slug?: string;
   logos?: ITeamLogo[];
+  logo?: string;
   color?: string;
   alternateColor?: string;
   links?: ITeamLink[];
@@ -95,4 +96,60 @@ interface IEspnVenue {
   id?: string;
   fullName?: string;
   address?: { city?: string; country?: string };
+}
+
+export interface IEspnGameStatus {
+  displayClock?: string;
+  period?: number;
+  type?: { name?: string; state?: string; completed?: boolean; description?: string; shortDetail?: string };
+}
+
+export interface IEspnGameCompetitor {
+  id?: string;
+  homeAway?: string;
+  team?: IEspnTeam;
+  score?: string | number;
+}
+
+export interface IEspnGameCompetition {
+  date?: string;
+  status?: IEspnGameStatus;
+  competitors?: IEspnGameCompetitor[];
+}
+
+export interface IEspnGameSummaryResponse {
+  header?: {
+    id?: string;
+    league?: { name?: string; slug?: string };
+    season?: { name?: string; year?: number };
+    competitions?: IEspnGameCompetition[];
+  };
+  gameInfo?: { venue?: IEspnVenue };
+  boxscore?: { teams?: IEspnGameTeamStatistics[] };
+  keyEvents?: IEspnGameKeyEvent[];
+}
+
+export interface IEspnGameTeamStatistics {
+  team?: { id?: string };
+  statistics?: { name?: string; displayValue?: string }[];
+}
+
+export interface IEspnGameKeyEvent {
+  id?: string;
+  type?: { type?: string; text?: string };
+  clock?: { displayValue?: string };
+  team?: { id?: string };
+  participants?: { athlete?: { id?: string; displayName?: string } }[];
+  text?: string;
+  shortText?: string;
+  ownGoal?: boolean;
+  penaltyKick?: boolean;
+}
+
+export interface IEspnScoreboardResponse {
+  events?: {
+    id?: string;
+    status?: IEspnGameStatus;
+    competitions?: IEspnGameCompetition[];
+  }[];
 }

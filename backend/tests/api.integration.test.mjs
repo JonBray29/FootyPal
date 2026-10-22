@@ -17,6 +17,21 @@ afterAll(async () => {
 });
 
 describe('API routes', () => {
+  test('GET /api/game/:eventId returns ESPN match details without excluded fields', async () => {
+    const response = await fetch(`${baseUrl}/api/game/401880337`);
+    expect(response.status).toBe(200);
+    const game = await response.json();
+    expect(game.eventId).toBe('401880337');
+    expect(game.status.type).toBe('FINISHED');
+    expect(game.homeTeam.id).toBe('372');
+    expect(game.awayTeam.id).toBe('374');
+    expect(game.homeTeamGoals).toBe(2);
+    expect(game.awayTeamGoals).toBe(1);
+    expect(game.timeline.length).toBeGreaterThan(0);
+    expect(game.statistics.homeTeam.shots).toEqual(expect.any(Number));
+    for (const field of ['lineups', 'attendance', 'referee']) expect(game).not.toHaveProperty(field);
+  });
+
   test('GET /health returns healthy status', async () => {
     const response = await fetch(`${baseUrl}/health`);
     expect(response.status).toBe(200);
@@ -46,6 +61,12 @@ describe('API routes', () => {
     expect(response.status).toBe(200);
     const team = await response.json();
     expect(team.upcomingFixtures.length).toBeGreaterThan(1);
+    expect(team).toHaveProperty('liveGame');
+    if (team.liveGame) {
+      expect(team.liveGame.homeTeam.id === '374' || team.liveGame.awayTeam.id === '374').toBe(true);
+      expect(team.previousMatches.some((fixture) => fixture.eventId === team.liveGame.eventId)).toBe(false);
+      expect(team.upcomingFixtures.some((fixture) => fixture.eventId === team.liveGame.eventId)).toBe(false);
+    }
     for (const fixture of team.upcomingFixtures) {
       expect(fixture.homeTeam.id).toEqual(expect.any(String));
       expect(fixture.homeTeam.name).toEqual(expect.any(String));
