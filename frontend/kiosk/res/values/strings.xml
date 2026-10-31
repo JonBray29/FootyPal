@@ -1,0 +1,4 @@
+<resources>
+    <string name="navigation_label">FootyPal navigation</string>
+    <string name="navigation_description">Shows floating Back and Dashboard buttons outside FootyPal, for frames without a navigation bar. Drag the dots to move the buttons. Does not read screen content.</string>
+</resources>

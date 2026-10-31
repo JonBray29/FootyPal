@@ -1,0 +1,502 @@
+package com.footypal.kiosk;
+
+import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.BroadcastReceiver;
+import android.content.ComponentName;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
+import android.graphics.Bitmap;
+import android.graphics.Color;
+import android.net.ConnectivityManager;
+import android.net.NetworkInfo;
+import android.net.Uri;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.provider.Settings;
+import android.util.Log;
+import android.util.TypedValue;
+import android.view.Gravity;
+import android.view.MotionEvent;
+import android.view.View;
+import android.view.WindowManager;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+import android.widget.Button;
+import android.widget.FrameLayout;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.util.Collections;
+
+/**
+ * Full-screen kiosk WebView for the FootyPal wall tablet.
+ * - Immersive mode hides the status + navigation bars (true 1280x800).
+ * - Controls: hold two fingers still on the screen for 1.5s for launcher/settings/Wi-Fi/reload.
+ * - Offline: a failed page load shows a native screen instead of WebView's error page (which
+ *   prints the full URL, including any token in it). With no Wi-Fi it offers Wi-Fi settings.
+ * - Remote debugging is OFF unless launched with the debug extra (every app on this device
+ *   gets root, so the devtools socket should only exist while actively debugging):
+ *     adb shell am start -n com.footypal.kiosk/.MainActivity --ez debug true
+ * - Launch with a URL: adb shell am start -a android.intent.action.VIEW -d <url> -n com.footypal.kiosk/.MainActivity
+ * - Set the saved URL, used on every later launch: adb shell am start -n com.footypal.kiosk/.MainActivity --es url <url>
+ * - Offer the kiosk as a Home app (--ez home false undoes it), then pick it:
+ *     adb shell am start -n com.footypal.kiosk/.MainActivity --ez home true
+ *     adb shell cmd package set-home-activity com.footypal.kiosk/.Home
+ */
+public class MainActivity extends Activity {
+  static final String TAG = "FootyPal";
+  static final String DEFAULT_URL = "http://127.0.0.1:8765/";
+  static final String PREFS = "kiosk";
+  static final String PREF_URL = "url";
+  static final long EXIT_HOLD_MS = 1500;
+  static final long RETRY_MS = 5000;
+  static final long STALL_MS = 15000;
+  static final float EXIT_SLOP_PX = 60;
+
+  private WebView web;
+  private final Handler handler = new Handler(Looper.getMainLooper());
+  private final int[] exitIds = new int[2];
+  private final float[] exitX = new float[2];
+  private final float[] exitY = new float[2];
+  private boolean exitArmed;
+  private String retryUrl;
+  private boolean pageFailed;
+  private LinearLayout offline;
+  private TextView offlineTitle, offlineText;
+
+  private final Runnable retry = new Runnable() {
+    @Override
+    public void run() {
+      if (retryUrl == null) return;
+      web.loadUrl(retryUrl);
+      // A retry started while Wi-Fi is joining can hang for about a minute with no error and no
+      // finish, so no further retry is posted. Start a new one if it is still pending.
+      handler.removeCallbacks(stall);
+      handler.postDelayed(stall, STALL_MS);
+    }
+  };
+
+  private final Runnable stall = new Runnable() {
+    @Override
+    public void run() {
+      if (retryUrl == null || offline.getVisibility() != View.VISIBLE) return;
+      Log.w(TAG, "Retry still pending after " + STALL_MS + " ms, starting a new one");
+      retry.run();
+    }
+  };
+
+  // On frames that start Wi-Fi after boot, the error screen is up when Wi-Fi connects. Retry then,
+  // and correct the "Connect to Wi-Fi?" text, instead of waiting for the next error.
+  private final BroadcastReceiver networkChange = new BroadcastReceiver() {
+    @Override
+    public void onReceive(Context context, Intent intent) {
+      if (retryUrl == null || offline.getVisibility() != View.VISIBLE || !wifiConnected()) return;
+      Log.i(TAG, "Wi-Fi connected, retrying now");
+      showOffline();
+      handler.removeCallbacks(retry);
+      handler.removeCallbacks(stall);
+      handler.post(retry);
+    }
+  };
+
+  private final Runnable showControls = new Runnable() {
+    @Override
+    public void run() {
+      exitArmed = false;
+      Log.i(TAG, "Two-finger hold: opening controls");
+      new AlertDialog.Builder(MainActivity.this)
+          .setTitle("FootyPal")
+          .setItems(new String[] {"Open launcher", "Android settings", "Wi-Fi settings", "Reload dashboard"},
+              (dialog, which) -> {
+                if (which == 0) openLauncher();
+                else if (which == 1) startActivity(new Intent(Settings.ACTION_SETTINGS));
+                else if (which == 2) openWifiSettings();
+                else web.reload();
+              })
+          .setNegativeButton("Back to dashboard", null).show();
+    }
+  };
+
+  @Override
+  protected void onCreate(Bundle state) {
+    super.onCreate(state);
+    applyDebugFlag(getIntent());
+    applyHomeFlag(getIntent());
+    keepNavigationEnabled();
+    getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+        | WindowManager.LayoutParams.FLAG_FULLSCREEN);
+
+    web = new WebView(this);
+    WebSettings s = web.getSettings();
+    s.setJavaScriptEnabled(true);
+    s.setDomStorageEnabled(true);
+    s.setUseWideViewPort(true);
+    s.setMediaPlaybackRequiresUserGesture(false);
+    // Keep navigation inside the kiosk. When the kiosk starts at boot before Wi-Fi is up, the
+    // first load fails and would stay on the error page, so retry failed main-frame loads.
+    // The offline screen covers WebView's error page until a load succeeds.
+    web.setWebViewClient(new WebViewClient() {
+      @Override
+      public WebResourceResponse shouldInterceptRequest(
+          WebView view, WebResourceRequest request) {
+
+        Uri uri = request.getUrl();
+
+        // Only intercept FootyPal's internal asset URL.
+        // Vite and external APIs continue using normal networking.
+        if (!"http".equalsIgnoreCase(uri.getScheme())
+            || !"127.0.0.1".equals(uri.getHost())
+            || uri.getPort() != 8765) {
+          return null;
+        }
+
+        String path = uri.getPath();
+
+        if (path == null || path.equals("/") || path.isEmpty()) {
+          path = "/index.html";
+        }
+
+        // Reject invalid paths rather than exposing unintended APK assets.
+        if (path.contains("..") || path.contains("\\")) {
+          return localNotFound();
+        }
+
+        String filename = path.substring(1);
+
+        String mime = "application/octet-stream";
+
+        if (filename.endsWith(".html")) {
+          mime = "text/html";
+        } else if (filename.endsWith(".js")) {
+          mime = "application/javascript";
+        } else if (filename.endsWith(".css")) {
+          mime = "text/css";
+        } else if (filename.endsWith(".json")
+            || filename.endsWith(".webmanifest")) {
+          mime = "application/json";
+        } else if (filename.endsWith(".png")) {
+          mime = "image/png";
+        } else if (filename.endsWith(".jpg")
+            || filename.endsWith(".jpeg")) {
+          mime = "image/jpeg";
+        } else if (filename.endsWith(".svg")) {
+          mime = "image/svg+xml";
+        } else if (filename.endsWith(".woff2")) {
+          mime = "font/woff2";
+        }
+
+        try {
+          return new WebResourceResponse(
+              mime,
+              "UTF-8",
+              getAssets().open("site/" + filename)
+          );
+        } catch (IOException e) {
+          Log.w(TAG, "Bundled asset not found: " + filename);
+          return localNotFound();
+        }
+      }
+      
+      @Override
+      public void onPageStarted(WebView view, String url, Bitmap icon) {
+        pageFailed = false;
+      }
+
+      @Override
+      public void onPageCommitVisible(WebView view, String url) {
+        // The retry reached the server and is drawing; let a slow page finish.
+        handler.removeCallbacks(stall);
+      }
+
+      @Override
+      public void onPageFinished(WebView view, String url) {
+        if (!pageFailed) {
+          offline.setVisibility(View.GONE);
+          handler.removeCallbacks(stall);
+        }
+      }
+
+      @Override
+      @SuppressWarnings("deprecation")
+      public void onReceivedError(WebView view, int code, String desc, String failingUrl) {
+        Log.w(TAG, "Load failed (" + desc + "), retrying in " + RETRY_MS + " ms");
+        pageFailed = true;
+        showOffline();
+        retryUrl = failingUrl;
+        handler.removeCallbacks(retry);
+        handler.removeCallbacks(stall);
+        handler.postDelayed(retry, RETRY_MS);
+      }
+    });
+    FrameLayout root = new FrameLayout(this);
+    root.addView(web);
+    root.addView(buildOffline());
+    setContentView(root);
+
+    String url = urlFrom(getIntent());
+    web.loadUrl(url != null ? url : savedUrl());
+    @SuppressWarnings("deprecation")
+    IntentFilter connectivity = new IntentFilter(ConnectivityManager.CONNECTIVITY_ACTION);
+    registerReceiver(networkChange, connectivity);
+  }
+
+  @Override
+  protected void onResume() {
+    super.onResume();
+    NavigationService.setDashboardVisible(true);
+  }
+
+  @Override
+  protected void onPause() {
+    cancelExit();
+    NavigationService.setDashboardVisible(false);
+    super.onPause();
+  }
+
+  @Override
+  protected void onNewIntent(Intent intent) {
+    super.onNewIntent(intent);
+    setIntent(intent);
+    applyDebugFlag(intent);
+    applyHomeFlag(intent);
+    String url = urlFrom(intent);
+    if (url != null) {
+      handler.removeCallbacks(retry);
+      handler.removeCallbacks(stall);
+      retryUrl = url;
+      web.loadUrl(url);
+    }
+  }
+
+  private WebResourceResponse localNotFound() {
+    return new WebResourceResponse(
+        "text/plain",
+        "UTF-8",
+        404,
+        "Not Found",
+        Collections.<String, String>emptyMap(),
+        new ByteArrayInputStream(
+            "Asset not found".getBytes(java.nio.charset.StandardCharsets.UTF_8)
+        )
+    );
+  }
+
+  /** A "url" extra is saved for later launches. A VIEW link from another app is shown, not saved. */
+  private String urlFrom(Intent intent) {
+    String saved = intent.getStringExtra(PREF_URL);
+    if (saved == null) return intent.getDataString();
+    // The activity is exported, so only save web URLs: never file:, content: or javascript:.
+    String scheme = Uri.parse(saved).getScheme();
+    if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) {
+      Log.w(TAG, "Ignoring non-web kiosk URL: " + saved);
+      return null;
+    }
+    getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(PREF_URL, saved).apply();
+    Log.i(TAG, "Saved kiosk URL: " + saved);
+    return saved;
+  }
+
+  private String savedUrl() {
+    return getSharedPreferences(PREFS, MODE_PRIVATE).getString(PREF_URL, DEFAULT_URL);
+  }
+
+  private int dp(float v) {
+    return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, getResources().getDisplayMetrics());
+  }
+
+  private View buildOffline() {
+    offline = new LinearLayout(this);
+    offline.setOrientation(LinearLayout.VERTICAL);
+    offline.setGravity(Gravity.CENTER);
+    offline.setBackgroundColor(Color.rgb(17, 17, 17));
+    offline.setVisibility(View.GONE);
+    offline.setClickable(true); // keep taps off the error page underneath
+
+    offlineTitle = new TextView(this);
+    offlineTitle.setTextColor(Color.WHITE);
+    offlineTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 40);
+    offlineTitle.setGravity(Gravity.CENTER);
+    offline.addView(offlineTitle);
+
+    offlineText = new TextView(this);
+    offlineText.setTextColor(Color.rgb(170, 170, 170));
+    offlineText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
+    offlineText.setGravity(Gravity.CENTER);
+    offlineText.setPadding(dp(24), dp(12), dp(24), dp(28));
+    offline.addView(offlineText);
+
+    Button wifi = new Button(this);
+    wifi.setText("Open Wi-Fi settings");
+    wifi.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22);
+    wifi.setPadding(dp(32), dp(16), dp(32), dp(16));
+    wifi.setOnClickListener(v -> openWifiSettings());
+    offline.addView(wifi, new LinearLayout.LayoutParams(
+        LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+    return offline;
+  }
+
+  private boolean wifiConnected() {
+    ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+    @SuppressWarnings("deprecation")
+    NetworkInfo n = cm != null ? cm.getNetworkInfo(ConnectivityManager.TYPE_WIFI) : null;
+    return n != null && n.isConnected();
+  }
+
+  private void showOffline() {
+    if (wifiConnected()) {
+      offlineTitle.setText("Can't reach the dashboard");
+      offlineText.setText("Wi-Fi is connected. Retrying every few seconds.");
+    } else {
+      offlineTitle.setText("Connect to Wi-Fi?");
+      offlineText.setText("The frame isn't on Wi-Fi. The dashboard comes back by itself once it is.");
+    }
+    offline.setVisibility(View.VISIBLE);
+  }
+
+  private void openWifiSettings() {
+    try {
+      startActivity(new Intent(Settings.ACTION_WIFI_SETTINGS));
+    } catch (Exception e) {
+      Log.w(TAG, "No Wi-Fi settings screen, opening Settings", e);
+      startActivity(new Intent(Settings.ACTION_SETTINGS));
+    }
+  }
+
+  /**
+   * Some frames (PF1007L) run a vendor BackgroundManagerService that drops the navigation service
+   * after the kiosk is updated or force-stopped, leaving no way back from Settings. If the owner
+   * opted in by granting WRITE_SECURE_SETTINGS, put the service back on the enabled list:
+   *   adb shell pm grant com.footypal.kiosk android.permission.WRITE_SECURE_SETTINGS
+   */
+  private void keepNavigationEnabled() {
+    if (checkSelfPermission("android.permission.WRITE_SECURE_SETTINGS") != PackageManager.PERMISSION_GRANTED) return;
+    String svc = getPackageName() + "/" + NavigationService.class.getName();
+    String cur = Settings.Secure.getString(getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+    if (cur != null) {
+      ComponentName want = new ComponentName(this, NavigationService.class);
+      for (String entry : cur.split(":")) {
+        if (want.equals(ComponentName.unflattenFromString(entry))) return;
+      }
+    }
+    String next = cur == null || cur.isEmpty() ? svc : cur + ":" + svc;
+    try {
+      Settings.Secure.putString(getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, next);
+      Settings.Secure.putString(getContentResolver(), Settings.Secure.ACCESSIBILITY_ENABLED, "1");
+      Log.i(TAG, "Re-enabled navigation service");
+    } catch (SecurityException e) {
+      Log.w(TAG, "Could not re-enable navigation service", e);
+    }
+  }
+
+  private void openLauncher() {
+    Intent home = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME);
+    for (ResolveInfo info : getPackageManager().queryIntentActivities(home, 0)) {
+      String pkg = info.activityInfo.packageName;
+      if (pkg.equals(getPackageName()) || pkg.equals("com.android.settings")) continue;
+      startActivity(new Intent(home).setComponent(new ComponentName(pkg, info.activityInfo.name)));
+      return;
+    }
+    startActivity(new Intent(Settings.ACTION_SETTINGS));
+  }
+
+  @Override
+  protected void onDestroy() {
+    unregisterReceiver(networkChange);
+    handler.removeCallbacksAndMessages(null);
+    if (web != null) web.destroy();
+    super.onDestroy();
+  }
+
+  /** Remote debugging only when explicitly requested; any normal launch turns it back off. */
+  private void applyDebugFlag(Intent intent) {
+    boolean debug = intent != null && intent.getBooleanExtra("debug", false);
+    WebView.setWebContentsDebuggingEnabled(debug);
+    Log.i(TAG, "WebView remote debugging " + (debug ? "ON" : "off"));
+  }
+
+  /** Turns the Home alias on or off. The shell can't enable a component of a release app. */
+  private void applyHomeFlag(Intent intent) {
+    if (intent == null || !intent.hasExtra("home")) return;
+    boolean home = intent.getBooleanExtra("home", false);
+    getPackageManager().setComponentEnabledSetting(new ComponentName(this, getPackageName() + ".Home"),
+        home ? PackageManager.COMPONENT_ENABLED_STATE_ENABLED : PackageManager.COMPONENT_ENABLED_STATE_DEFAULT,
+        PackageManager.DONT_KILL_APP);
+    Log.i(TAG, "Home alias " + (home ? "on" : "off"));
+  }
+
+  /** Watches for the two-finger exit hold; all touches still go to the page. */
+  @Override
+  public boolean dispatchTouchEvent(MotionEvent e) {
+    switch (e.getActionMasked()) {
+      case MotionEvent.ACTION_POINTER_DOWN:
+        if (e.getPointerCount() == 2) {
+          for (int i = 0; i < 2; i++) {
+            exitIds[i] = e.getPointerId(i);
+            exitX[i] = e.getX(i);
+            exitY[i] = e.getY(i);
+          }
+          exitArmed = true;
+          handler.removeCallbacks(showControls);
+          handler.postDelayed(showControls, EXIT_HOLD_MS);
+        } else {
+          cancelExit(); // 3+ fingers
+        }
+        break;
+      case MotionEvent.ACTION_MOVE:
+        if (exitArmed) {
+          for (int i = 0; i < 2; i++) {
+            int idx = e.findPointerIndex(exitIds[i]);
+            if (idx < 0 || Math.hypot(e.getX(idx) - exitX[i], e.getY(idx) - exitY[i]) > EXIT_SLOP_PX) {
+              cancelExit();
+              break;
+            }
+          }
+        }
+        break;
+      case MotionEvent.ACTION_POINTER_UP:
+      case MotionEvent.ACTION_UP:
+      case MotionEvent.ACTION_CANCEL:
+        cancelExit();
+        break;
+      default:
+        break;
+    }
+    return super.dispatchTouchEvent(e);
+  }
+
+  private void cancelExit() {
+    if (!exitArmed) return;
+    exitArmed = false;
+    handler.removeCallbacks(showControls);
+  }
+
+  @Override
+  public void onWindowFocusChanged(boolean hasFocus) {
+    super.onWindowFocusChanged(hasFocus);
+    if (hasFocus) hideSystemUi();
+  }
+
+  private void hideSystemUi() {
+    getWindow().getDecorView().setSystemUiVisibility(
+        View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+            | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+            | View.SYSTEM_UI_FLAG_FULLSCREEN
+            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+            | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+  }
+
+  @Override
+  public void onBackPressed() {
+    if (web.canGoBack()) web.goBack();
+  }
+}
