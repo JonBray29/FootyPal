@@ -1,0 +1,74 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  background: #101820;
+  color: #f5f7fa;
+  font-family: Arial, sans-serif;
+}
+
+.dashboard {
+  width: 100%;
+  max-width: 1280px;
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 32px;
+}
+
+header {
+  margin-bottom: 32px;
+}
+
+h1 {
+  font-size: 36px;
+  margin: 0 0 8px;
+}
+
+header p {
+  color: #98a6b5;
+  margin: 0;
+}
+
+.league-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.league {
+  min-width: 0;
+  padding: 20px;
+  background: #1d2935;
+  border: 1px solid #344454;
+  border-radius: 12px;
+}
+
+.league span {
+  display: block;
+  font-size: 19px;
+  font-weight: 600;
+}
+
+.league small {
+  display: block;
+  color: #98a6b5;
+  margin-top: 8px;
+}
+
+@media (max-width: 700px) {
+  .league-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboard {
+    padding: 16px;
+  }
+}
