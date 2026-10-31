@@ -1,6 +1,6 @@
 {
     "name": "@footypal/backend",
-    "version": "1.0.0-dev",
+    "version": "1.0.0-dev1",
     "private": true,
     "type": "module",
     "scripts": {
