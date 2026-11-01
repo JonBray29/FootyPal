@@ -1,14 +1,17 @@
 {
-  "name": "footypal",
-  "private": true,
-  "version": "1.0.0-dev",
-  "workspaces": [
-    "backend",
-    "frontend"
-  ],
-  "scripts": {
-    "dev": "npm run dev --workspace @footypal/backend",
-    "build": "npm run build --workspaces --if-present",
-    "start": "npm run start --workspace @footypal/backend"
-  }
+    "name": "footypal",
+    "private": true,
+    "version": "1.0.0-dev",
+    "workspaces": [
+        "backend",
+        "frontend"
+    ],
+    "scripts": {
+        "dev": "npm run dev --workspace @footypal/backend",
+        "build": "npm run build --workspaces --if-present",
+        "start": "npm run start --workspace @footypal/backend",
+        "frame:dev": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/frame-dev.ps1",
+        "frame:build": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/frame-build.ps1",
+        "frame:install": "adb -d install -r frontend/kiosk/build/footypal.apk"
+    }
 }
