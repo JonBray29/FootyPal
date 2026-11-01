@@ -7,7 +7,8 @@
         "frontend"
     ],
     "scripts": {
-        "dev": "npm run dev --workspace @footypal/backend",
+        "dev": "pnpm --parallel --filter @footypal/backend --filter @footypal/frontend dev",
+        "backend:dev": "pnpm --filter @footypal/backend dev",
         "build": "npm run build --workspaces --if-present",
         "start": "npm run start --workspace @footypal/backend",
         "frame:dev": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/frame-dev.ps1",
