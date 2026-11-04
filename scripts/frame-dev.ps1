@@ -21,9 +21,15 @@ foreach ($tool in @("adb", "pnpm")) {
 }
 
 # Confirm the frame is connected
-Write-Host "Checking Android connection..."
+Write-Host "Starting ADB..."
 
-$deviceState = (& adb -d get-state 2>&1 | Out-String).Trim()
+& adb start-server
+if ($LASTEXITCODE -ne 0) {
+    throw "Failed to start ADB server."
+}
+
+Write-Host "Checking Android connection..."
+$deviceState = (& adb -d get-state).Trim()
 
 if ($LASTEXITCODE -ne 0 -or $deviceState -ne "device") {
     throw "Frame not connected or ADB not authorised. Check USB and run 'adb devices -l'."
