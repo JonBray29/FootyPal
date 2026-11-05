@@ -4,6 +4,15 @@ type League = { name: string; slug: string; ref: string; logo: string };
 type TeamOption = { id: string; name: string; abbreviation: string | null; logos: { href: string; rel?: string[] }[] };
 type TeamSimple = { id: string; name: string; abbreviation: string | null; logo: string | null };
 type Fixture = { eventId: string; date: string | null; homeTeam: TeamSimple; awayTeam: TeamSimple; homeTeamGoals?: number; awayTeamGoals?: number };
+type GameStatLine = { possession: number | null; shots: number | null; shotsOnTarget: number | null; corners: number | null; fouls: number | null; offsides: number | null; saves: number | null };
+type GameDetails = {
+  status: { type: string; clock: string | null };
+  homeTeamGoals: number | null;
+  awayTeamGoals: number | null;
+  statistics: { homeTeam: GameStatLine; awayTeam: GameStatLine };
+  timeline: { id: string | null; type: string; minute: string | null; teamId: string | null; players: { name: string | null }[]; description: string | null }[];
+};
+type TodaysGame = { fixture: Fixture; status: "LIVE" | "SCHEDULED" | "FINISHED" };
 type Standing = { position: number; positionType: string; teamName: string; gamesPlayed: number; won: number; drew: number; lost: number; goalsFor: number; goalsAgainst: number; goalDifference: number; points: number };
 type Team = {
   id: string; name: string; shortName: string | null; abbreviation: string | null; nickname: string | null;
@@ -43,6 +52,10 @@ function dateLabel(value: string | null, options: Intl.DateTimeFormatOptions = {
   return Number.isNaN(date.getTime()) ? "Date TBC" : new Intl.DateTimeFormat(undefined, options).format(date);
 }
 
+function isToday(value: string | null, today = new Date()) {
+  return !!value && new Date(value).toDateString() === today.toDateString();
+}
+
 function colorForMode(hex: string | null, mode: "light" | "dark", fallback: string) {
   if (!hex || !/^#[0-9a-f]{6}$/i.test(hex)) return fallback;
   const rgb = [1, 3, 5].map((index) => parseInt(hex.slice(index, index + 2), 16));
@@ -59,35 +72,110 @@ function Badge({ src, name, className = "" }: { src?: string | null; name: strin
     <span className={`team-badge badge-fallback ${className}`} aria-label={name}>{name.slice(0, 2).toUpperCase()}</span>;
 }
 
-function FixtureRow({ fixture, result = false, live = false, liveClock, isReturnTarget = false, highlightedId }: { fixture: Fixture; result?: boolean; live?: boolean; liveClock?: string | null; isReturnTarget?: boolean; highlightedId: string }) {
+type UiIconName = "settings" | "close" | "sun-low" | "sun-high" | "moon" | "volume-low" | "volume-high";
+function UiIcon({ name, size = 20 }: { name: UiIconName; size?: number }) {
+  return <svg aria-hidden="true" focusable="false" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    {name === "settings" && <><path d="M9.7 3h4.6l.6 2.2a7.8 7.8 0 0 1 1.6.9l2.2-.7 2.3 4-1.6 1.6a7.4 7.4 0 0 1 0 1.9l1.6 1.6-2.3 4-2.2-.7a7.8 7.8 0 0 1-1.6.9l-.6 2.2H9.7l-.6-2.2a7.8 7.8 0 0 1-1.6-.9l-2.2.7-2.3-4 1.6-1.6a7.4 7.4 0 0 1 0-1.9L3 9.4l2.3-4 2.2.7a7.8 7.8 0 0 1 1.6-.9L9.7 3Z" /><circle cx="12" cy="12" r="3" /></>}
+    {name === "close" && <path d="m18 6-12 12M6 6l12 12" />}
+    {(name === "sun-low" || name === "sun-high") && <><circle cx="12" cy="12" r={name === "sun-low" ? 3.5 : 4.5} /><path d={name === "sun-low" ? "M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2" : "M12 2v2m0 16v2M2 12h2m16 0h2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42m0-14.14-1.42 1.42m-11.3 11.3-1.42 1.42"} /></>}
+    {name === "moon" && <path d="M20.5 15.5A8.5 8.5 0 0 1 8.5 3.5 8.5 8.5 0 1 0 20.5 15.5Z" />}
+    {(name === "volume-low" || name === "volume-high") && <><path d="M4 10v4h3l5 4V6l-5 4H4Z" />{name === "volume-low" ? <path d="M15 9.5a4 4 0 0 1 0 5" /> : <><path d="M15 9a4.5 4.5 0 0 1 0 6" /><path d="M18 6a9 9 0 0 1 0 12" /></>}</>}
+  </svg>;
+}
+
+function FixtureRow({ fixture, result = false, live = false, isReturnTarget = false, highlightedId }: { fixture: Fixture; result?: boolean; live?: boolean; isReturnTarget?: boolean; highlightedId: string }) {
   const homeIsFavourite = fixture.homeTeam.id === highlightedId;
   const awayIsFavourite = fixture.awayTeam.id === highlightedId;
+  const showScore = result || live;
   return <article className={`fixture-row ${live ? "live-fixture" : ""}`} data-return-target={isReturnTarget ? "true" : undefined}>
     <div className="fixture-date">{live ? <span className="fixture-live-label"><i className="live-pulse" />LIVE</span> : <span>{dateLabel(fixture.date)}</span>}{live ? <span>{fixture.date ? dateLabel(fixture.date, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : "IN PLAY"}</span> : fixture.date && <span>{dateLabel(fixture.date, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" })}</span>}</div>
     <div className="fixture-match">
       <div className={`fixture-side ${homeIsFavourite ? "is-favourite" : ""}`}>
         <Badge src={fixture.homeTeam.logo} name={fixture.homeTeam.name} />
         <span>{fixture.homeTeam.abbreviation ?? fixture.homeTeam.name}</span>
-        {(result || live) && <b>{fixture.homeTeamGoals ?? "–"}</b>}
       </div>
-      <div className={`fixture-divider ${live ? "has-live-clock" : ""}`}>{live && <span className="fixture-minute">{liveClock ?? ""}</span>}<span>{result || live ? ":" : "VS"}</span></div>
+      <div className={`fixture-divider ${live ? "is-live" : ""}`}>
+        {showScore ? <span className="fixture-score-line"><b>{fixture.homeTeamGoals ?? "-"}</b><i>:</i><b>{fixture.awayTeamGoals ?? "-"}</b></span> : <span>VS</span>}
+      </div>
       <div className={`fixture-side ${awayIsFavourite ? "is-favourite" : ""}`}>
-        {(result || live) && <b>{fixture.awayTeamGoals ?? "–"}</b>}
-        <Badge src={fixture.awayTeam.logo} name={fixture.awayTeam.name} />
         <span>{fixture.awayTeam.abbreviation ?? fixture.awayTeam.name}</span>
+        <Badge src={fixture.awayTeam.logo} name={fixture.awayTeam.name} />
       </div>
     </div>
   </article>;
 }
 
-function FixturePanel({ fixtures, highlightedId, teamId, emptyMessage, targetEventId, returnLabel, liveClock }: {
+function TodayGamePanel({ game, details, highlightedId }: { game: TodaysGame; details: GameDetails | null; highlightedId: string }) {
+  const { fixture } = game;
+  const status = details?.status.type ?? game.status;
+  const isLive = status === "LIVE";
+  const timeLabel = status === "FINISHED"
+    ? "FT"
+    : isLive
+      ? details?.status.clock ?? "LIVE"
+      : fixture.date ? dateLabel(fixture.date, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : "Time TBC";
+  const homeScore = details?.homeTeamGoals ?? fixture.homeTeamGoals;
+  const awayScore = details?.awayTeamGoals ?? fixture.awayTeamGoals;
+  const showScore = status === "LIVE" || status === "FINISHED" || homeScore !== undefined;
+  const statDefinitions: { key: keyof GameStatLine; label: string; suffix?: string }[] = [
+    { key: "possession", label: "Possession", suffix: "%" },
+    { key: "shots", label: "Shots" },
+    { key: "shotsOnTarget", label: "On target" },
+    { key: "corners", label: "Corners" },
+    { key: "fouls", label: "Fouls" },
+    { key: "offsides", label: "Offsides" },
+  ];
+  const stats = statDefinitions.map(({ key, label, suffix }) => ({
+    key,
+    label,
+    suffix,
+    home: details?.statistics.homeTeam[key] ?? 0,
+    away: details?.statistics.awayTeam[key] ?? 0,
+  }));
+  const scorers = details?.timeline.filter((event) => event.type === "GOAL") ?? [];
+  const scorerRows = (teamId: string) => {
+    const scorerMinutes = new Map<string, string[]>();
+    scorers.filter((scorer) => scorer.teamId === teamId).forEach((scorer) => {
+      const scorerName = scorer.players[0]?.name || scorer.description || "Goal";
+      const minutes = scorerMinutes.get(scorerName) ?? [];
+      if (scorer.minute) minutes.push(scorer.minute);
+      scorerMinutes.set(scorerName, minutes);
+    });
+    return Array.from(scorerMinutes, ([scorerName, minutes]) => <div className="today-team-scorer" key={`${teamId}-${scorerName}`}><span>{scorerName}</span>{minutes.length > 0 && <small>{minutes.join(", ")}</small>}</div>);
+  };
+
+  return <section className="panel today-game-panel">
+    <div className="today-game-heading"><h2>Today’s game</h2><span className={isLive ? "today-game-time is-live" : "today-game-time"}>{isLive && <i className="live-pulse" />}{timeLabel}</span></div>
+    <div className="today-scoreboard">
+      <div className="today-game-team home"><div className="today-team-identity"><Badge src={fixture.homeTeam.logo} name={fixture.homeTeam.name} /><span>{fixture.homeTeam.name}</span></div><div className="today-team-scorers">{scorerRows(fixture.homeTeam.id)}</div></div>
+      {showScore ? <div className="today-game-score"><strong>{homeScore ?? "–"}</strong><i>:</i><strong>{awayScore ?? "–"}</strong></div> : <div className="today-game-score scheduled">VS</div>}
+      <div className="today-game-team away"><div className="today-team-identity"><span>{fixture.awayTeam.name}</span><Badge src={fixture.awayTeam.logo} name={fixture.awayTeam.name} /></div><div className="today-team-scorers">{scorerRows(fixture.awayTeam.id)}</div></div>
+    </div>
+    <div className="today-game-details">
+      <section className="game-stats">
+        {stats.length ? stats.map(({ key, label, suffix, home, away }) => {
+          const total = home + away;
+          const homeShare = total > 0 ? (home / total) * 100 : 0;
+          const awayShare = total > 0 ? (away / total) * 100 : 0;
+          return <div className={`game-stat ${key === "possession" ? "is-possession" : ""}`} key={key}>
+            <div className="game-stat-labels"><strong>{home}{suffix ?? ""}</strong><span>{label}</span><strong>{away}{suffix ?? ""}</strong></div>
+            {key === "possession" ? <div className="game-stat-bar"><span className={fixture.homeTeam.id === highlightedId ? "is-favourite" : ""} style={{ width: `${homeShare}%` }} /><span className={fixture.awayTeam.id === highlightedId ? "is-favourite" : ""} style={{ width: `${awayShare}%` }} /></div> : <div className="game-stat-team-bars">
+              <div className="game-stat-team-track is-home"><span className={fixture.homeTeam.id === highlightedId ? "is-favourite" : ""} style={{ width: `${homeShare}%` }} /></div>
+              <div className="game-stat-team-track"><span className={fixture.awayTeam.id === highlightedId ? "is-favourite" : ""} style={{ width: `${awayShare}%` }} /></div>
+            </div>}
+          </div>;
+        }) : <p className="game-detail-empty">{status === "SCHEDULED" ? "Stats available at kickoff." : "Stats unavailable."}</p>}
+      </section>
+    </div>
+  </section>;
+}
+function FixturePanel({ fixtures, highlightedId, teamId, emptyMessage, targetEventId, returnLabel }: {
   fixtures: { fixture: Fixture; live: boolean }[];
   highlightedId: string;
   teamId: string;
   emptyMessage: string;
   targetEventId?: string;
   returnLabel: string;
-  liveClock?: string | null;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
   const [showReturn, setShowReturn] = useState(false);
@@ -124,7 +212,7 @@ function FixturePanel({ fixtures, highlightedId, teamId, emptyMessage, targetEve
       {showReturn && <button className="fixture-return" onClick={returnToStart}>{returnLabel}</button>}
     </div>
     <div className="fixture-list" ref={listRef} onScroll={onScroll}>
-      {fixtures.length ? fixtures.map(({ fixture, live }) => <FixtureRow key={fixture.eventId} fixture={fixture} result={!live && fixture.homeTeamGoals !== undefined} live={live} liveClock={live ? liveClock : undefined} isReturnTarget={fixture.eventId === targetEventId} highlightedId={highlightedId} />) : <div className="empty-state compact">{emptyMessage}</div>}
+      {fixtures.length ? fixtures.map(({ fixture, live }) => <FixtureRow key={fixture.eventId} fixture={fixture} result={!live && fixture.homeTeamGoals !== undefined} live={live} isReturnTarget={fixture.eventId === targetEventId} highlightedId={highlightedId} />) : <div className="empty-state compact">{emptyMessage}</div>}
     </div>
   </section>;
 }
@@ -148,8 +236,10 @@ export default function App() {
   const [error, setError] = useState("");
   const [brightness, setBrightness] = useState(75);
   const [volume, setVolume] = useState(45);
-  const [liveClock, setLiveClock] = useState<string | null>(null);
+  const [refreshCountdown, setRefreshCountdown] = useState(30);
+  const [gameDetails, setGameDetails] = useState<GameDetails | null>(null);
   const hasLoadedTeam = useRef(false);
+  const standingsWrapRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -192,9 +282,16 @@ export default function App() {
     let active = true;
     const refresh = () => { if (active) void loadTeam(teamId, controller.signal); };
     refresh();
-    const interval = window.setInterval(refresh, 60_000);
+    const interval = window.setInterval(refresh, 30_000);
     return () => { active = false; controller.abort(); window.clearInterval(interval); };
   }, [teamId, loadTeam]);
+
+  useEffect(() => {
+    if (!teamId) return;
+    setRefreshCountdown(30);
+    const interval = window.setInterval(() => setRefreshCountdown((remaining) => remaining <= 1 ? 30 : remaining - 1), 1_000);
+    return () => window.clearInterval(interval);
+  }, [teamId]);
 
   useEffect(() => {
     document.documentElement.dataset.mode = mode;
@@ -219,7 +316,14 @@ export default function App() {
   const draftLeague = leagues.find((item) => item.slug === draftLeagueSlug);
   const logo = team?.logos?.find((item) => item.rel?.includes("default"))?.href ?? team?.logos?.[0]?.href;
   const leagueName = leagues.find((league) => league.slug === leagueSlug)?.name ?? "Football";
-  const leaguePosition = team?.standings.find((row) => row.teamName.toLowerCase() === team.name.toLowerCase());
+  useLayoutEffect(() => {
+    const wrap = standingsWrapRef.current;
+    const selectedRow = wrap?.querySelector<HTMLElement>("[data-selected-team='true']");
+    if (!wrap || !selectedRow) return;
+    const rowTop = selectedRow.getBoundingClientRect().top - wrap.getBoundingClientRect().top + wrap.scrollTop;
+    const centeredTop = rowTop + selectedRow.offsetHeight / 2 - wrap.clientHeight / 2;
+    wrap.scrollTop = Math.max(0, Math.min(wrap.scrollHeight - wrap.clientHeight, centeredTop));
+  }, [teamId, team?.standings.length]);
   const onSelectTeam = () => {
     if (!draftTeamId) return;
     localStorage.setItem("footypal.team", draftTeamId);
@@ -238,24 +342,35 @@ export default function App() {
   };
 
   const live = team?.liveGame;
-  useEffect(() => {
-    if (!live?.eventId) {
-      setLiveClock(null);
-      return;
-    }
-    setLiveClock(null);
-    const controller = new AbortController();
-    const refreshClock = () => {
-      api<{ status?: { clock?: string | null } }>(`/api/game/${encodeURIComponent(live.eventId)}`, controller.signal)
-        .then((game) => setLiveClock(game.status?.clock ?? null))
-        .catch(() => { /* Keep the live fixture visible if its clock endpoint is unavailable. */ });
-    };
-    refreshClock();
-    const interval = window.setInterval(refreshClock, 60_000);
-    return () => { controller.abort(); window.clearInterval(interval); };
-  }, [live?.eventId]);
   const previousFixtures = team ? [...team.previousMatches].reverse() : [];
   const upcomingFixtures = team?.upcomingFixtures ?? [];
+  const upcomingToday = upcomingFixtures.find((fixture) => isToday(fixture.date));
+  const finishedToday = [...previousFixtures].reverse().find((fixture) => isToday(fixture.date));
+  const todayGame: TodaysGame | null = live
+    ? { fixture: live, status: "LIVE" }
+    : upcomingToday
+      ? { fixture: upcomingToday, status: "SCHEDULED" }
+      : finishedToday
+        ? { fixture: finishedToday, status: "FINISHED" }
+        : null;
+  useEffect(() => {
+    const selectedGame = todayGame;
+    const eventId = selectedGame?.fixture.eventId;
+    if (!selectedGame || !eventId) {
+      setGameDetails(null);
+      return;
+    }
+    setGameDetails(null);
+    const controller = new AbortController();
+    const refreshGame = () => {
+      api<GameDetails>(`/api/game/${encodeURIComponent(eventId)}`, controller.signal)
+        .then(setGameDetails)
+        .catch(() => { /* Keep the selected game visible if details are temporarily unavailable. */ });
+    };
+    refreshGame();
+    const interval = selectedGame.status === "LIVE" ? window.setInterval(refreshGame, 60_000) : undefined;
+    return () => { controller.abort(); if (interval) window.clearInterval(interval); };
+  }, [todayGame?.fixture.eventId, todayGame?.status]);
   const timelineFixtures = [
     ...previousFixtures.map((fixture) => ({ fixture, live: false })),
     ...(live ? [{ fixture: live, live: true }] : []),
@@ -280,7 +395,7 @@ export default function App() {
         </button> : <span>{leagueName}</span>}
       </div>
       <div className="topbar-actions">
-        <button className="icon-button" aria-label="Open settings" onClick={() => setSettingsOpen(true)}><span className="settings-glyph">⚙</span></button>
+        <button className="icon-button" aria-label="Open settings" onClick={() => setSettingsOpen(true)}><UiIcon name="settings" size={23} /></button>
       </div>
     </header>
 
@@ -299,32 +414,29 @@ export default function App() {
     {team && <>
       <section className="dashboard-grid">
         <div className="panel standings-panel">
-          <div className="panel-heading"><div><h2>League table</h2></div><span className="table-season">{team.standings.length ? `${team.standings.length} CLUBS` : "STANDINGS"}</span></div>
-          {team.standings.length ? <div className="table-wrap"><table><thead><tr><th className="pos-col">POS</th><th className="club-col">CLUB</th><th className="stat-col">PL</th><th className="stat-col">W</th><th className="stat-col">D</th><th className="stat-col">L</th><th className="wide-stat">GD</th><th className="pts-col">PTS</th></tr></thead><tbody>{team.standings.map((row, index) => {
+          <div className="panel-heading"><div><h2>League table</h2></div><div className="standings-form"><span className="table-season">FORM</span><div className="form-pills">{(team.form ?? "").slice(-5).split("").map((value, index) => <span key={`${value}${index}`} className={`form-pill form-${value.toLowerCase()}`}>{value}</span>)}{!team.form && <span className="summary-note">—</span>}</div></div></div>
+          {team.standings.length ? <div className="table-wrap" ref={standingsWrapRef}><table><thead><tr><th className="pos-col">POS</th><th className="club-col">CLUB</th><th className="stat-col">PL</th><th className="stat-col">W</th><th className="stat-col">D</th><th className="stat-col">L</th><th className="wide-stat">GD</th><th className="pts-col">PTS</th></tr></thead><tbody>{team.standings.map((row, index) => {
             const selected = row.teamName.toLowerCase() === team.name.toLowerCase();
             const startsNewPositionType = index > 0 && row.positionType !== team.standings[index - 1].positionType;
             const endsPositionType = index < team.standings.length - 1 && row.positionType !== team.standings[index + 1].positionType;
             const rowTeam = teams.find((item) => item.name.toLowerCase() === row.teamName.toLowerCase());
             const crest = rowTeam?.logos?.find((item) => item.rel?.includes("default"))?.href ?? rowTeam?.logos?.[0]?.href;
-            return <Fragment key={`${row.position}-${row.teamName}`}>{startsNewPositionType && <tr className="position-separator" aria-hidden="true"><td colSpan={8}><span /></td></tr>}<tr className={`${selected ? "selected-row" : ""} ${endsPositionType ? "position-group-end" : ""}`}><td className="position-cell"><span>{String(row.position).padStart(2, "0")}</span></td><td className="club-cell"><span className="club-info">{crest ? <img src={crest} alt="" /> : <span className="mini-crest">{row.teamName.slice(0, 1)}</span>}<strong>{row.teamName}</strong></span></td><td className="stat-col">{row.gamesPlayed}</td><td className="stat-col">{row.won}</td><td className="stat-col">{row.drew}</td><td className="stat-col">{row.lost}</td><td className="wide-stat">{row.goalDifference > 0 ? `+${row.goalDifference}` : row.goalDifference}</td><td className="points-cell">{row.points}</td></tr></Fragment>;
+            return <Fragment key={`${row.position}-${row.teamName}`}>{startsNewPositionType && <tr className="position-separator" aria-hidden="true"><td colSpan={8}><span /></td></tr>}<tr className={`${selected ? "selected-row" : ""} ${endsPositionType ? "position-group-end" : ""}`} data-selected-team={selected ? "true" : undefined}><td className="position-cell"><span>{String(row.position).padStart(2, "0")}</span></td><td className="club-cell"><span className="club-info">{crest ? <img src={crest} alt="" /> : <span className="mini-crest">{row.teamName.slice(0, 1)}</span>}<strong>{row.teamName}</strong></span></td><td className="stat-col">{row.gamesPlayed}</td><td className="stat-col">{row.won}</td><td className="stat-col">{row.drew}</td><td className="stat-col">{row.lost}</td><td className="wide-stat">{row.goalDifference > 0 ? `+${row.goalDifference}` : row.goalDifference}</td><td className="points-cell">{row.points}</td></tr></Fragment>;
           })}</tbody></table></div> : <div className="empty-state">Standings aren’t available right now.</div>}
           <div className="table-footer"><span>Updated just now</span></div>
         </div>
 
         <div className="fixtures-column">
-          <section className="panel summary-panel">
-            <div className="summary-block"><span className="eyebrow">LEAGUE POSITION</span><strong>{leaguePosition?.position ?? "—"}<small>{team.standings.length ? ` / ${team.standings.length}` : ""}</small></strong></div>
-            <div className="summary-divider" />
-            <div className="summary-block form-block"><span className="eyebrow">RECENT FORM</span><div className="form-pills">{(team.form ?? "").slice(-5).split("").map((value, index) => <span key={`${value}${index}`} className={`form-pill form-${value.toLowerCase()}`}>{value}</span>)}{!team.form && <span className="summary-note">—</span>}</div></div>
-          </section>
-          <FixturePanel fixtures={timelineFixtures} highlightedId={team.id} teamId={team.id} emptyMessage="No fixtures to show." targetEventId={targetFixture?.eventId} returnLabel={returnLabel} liveClock={liveClock} />
+
+          {todayGame && <TodayGamePanel game={todayGame} details={gameDetails} highlightedId={team.id} />}
+          <FixturePanel fixtures={timelineFixtures} highlightedId={team.id} teamId={team.id} emptyMessage="No fixtures to show." targetEventId={targetFixture?.eventId} returnLabel={returnLabel} />
         </div>
       </section>
-      <footer className="page-footer"><span>DATA UPDATES EVERY MINUTE</span></footer>
+      <footer className="page-footer"><span>Refetching data in {refreshCountdown} {refreshCountdown === 1 ? "second" : "seconds"}</span></footer>
     </>}
 
     {teamPicker && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && team) setTeamPicker(false); }}><section className="modal team-modal" role="dialog" aria-modal="true" aria-labelledby="team-modal-title">
-      <div className="modal-topline"><div className="brand-mark small-mark">F</div>{team && <button className="modal-close" onClick={() => setTeamPicker(false)} aria-label="Close">×</button>}</div>
+      <div className="modal-topline"><div className="brand-mark small-mark">F</div>{team && <button className="modal-close" onClick={() => setTeamPicker(false)} aria-label="Close"><UiIcon name="close" size={20} /></button>}</div>
       <div className="eyebrow">PERSONALISE YOUR DASHBOARD</div><h2 id="team-modal-title">Pick your team.</h2><p className="modal-copy">We’ll put your club in the spotlight, with its colours across the whole matchday.</p>
       <label className="field-label" htmlFor="league-select">YOUR LEAGUE</label>
       <div className="team-picker-field league-picker-field">
@@ -357,10 +469,10 @@ export default function App() {
     </section></div>}
 
     {settingsOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSettingsOpen(false); }}><section className="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
-      <div className="modal-topline"><div className="eyebrow">DISPLAY SETTINGS</div><button className="modal-close" onClick={() => setSettingsOpen(false)} aria-label="Close">×</button></div><h2 id="settings-title">Display settings</h2><p className="modal-copy">Brightness, volume and appearance.</p>
-      <div className="setting-group"><div className="setting-heading"><span>Appearance</span><span className="setting-value">{mode === "dark" ? "Dark" : "Light"}</span></div><div className="mode-switch"><button className={mode === "light" ? "active" : ""} onClick={() => setMode("light")}><span>☼</span> Light</button><button className={mode === "dark" ? "active" : ""} onClick={() => setMode("dark")}><span>☾</span> Dark</button></div></div>
-      <div className="setting-group"><div className="setting-heading"><label htmlFor="brightness">Screen brightness</label><span className="setting-value">{brightness}%</span></div><div className="range-row"><span>☼</span><input id="brightness" type="range" min="10" max="100" value={brightness} disabled={!canControlBrightness} style={{ "--range-progress": `${((brightness - 10) / 90) * 100}%` } as React.CSSProperties} onChange={(event) => { const value = Number(event.target.value); setBrightness(value); if (canControlBrightness) window.FootyPalDevice?.setBrightness(value); }} /><span className="sun-large">☼</span></div></div>
-      <div className="setting-group"><div className="setting-heading"><label htmlFor="volume">Media volume</label><span className="setting-value">{volume}%</span></div><div className="range-row"><span>◖</span><input id="volume" type="range" min="0" max="100" value={volume} disabled={!canControlVolume} style={{ "--range-progress": `${volume}%` } as React.CSSProperties} onChange={(event) => { const value = Number(event.target.value); setVolume(value); if (canControlVolume) window.FootyPalDevice?.setVolume(value); }} /><span className="volume-high">◖</span></div></div>
+      <div className="modal-topline"><div className="eyebrow">DISPLAY SETTINGS</div><button className="modal-close" onClick={() => setSettingsOpen(false)} aria-label="Close"><UiIcon name="close" size={20} /></button></div><h2 id="settings-title">Display settings</h2><p className="modal-copy">Brightness, volume and appearance.</p>
+      <div className="setting-group"><div className="setting-heading"><span>Appearance</span><span className="setting-value">{mode === "dark" ? "Dark" : "Light"}</span></div><div className="mode-switch"><button className={mode === "light" ? "active" : ""} onClick={() => setMode("light")}><UiIcon name="sun-high" size={16} /> Light</button><button className={mode === "dark" ? "active" : ""} onClick={() => setMode("dark")}><UiIcon name="moon" size={16} /> Dark</button></div></div>
+      <div className="setting-group"><div className="setting-heading"><label htmlFor="brightness">Screen brightness</label><span className="setting-value">{brightness}%</span></div><div className="range-row"><UiIcon name="sun-low" size={16} /><input id="brightness" type="range" min="10" max="100" value={brightness} disabled={!canControlBrightness} style={{ "--range-progress": `${((brightness - 10) / 90) * 100}%` } as React.CSSProperties} onChange={(event) => { const value = Number(event.target.value); setBrightness(value); if (canControlBrightness) window.FootyPalDevice?.setBrightness(value); }} /><UiIcon name="sun-high" size={20} /></div></div>
+      <div className="setting-group"><div className="setting-heading"><label htmlFor="volume">Media volume</label><span className="setting-value">{volume}%</span></div><div className="range-row"><UiIcon name="volume-low" size={18} /><input id="volume" type="range" min="0" max="100" value={volume} disabled={!canControlVolume} style={{ "--range-progress": `${volume}%` } as React.CSSProperties} onChange={(event) => { const value = Number(event.target.value); setVolume(value); if (canControlVolume) window.FootyPalDevice?.setVolume(value); }} /><UiIcon name="volume-high" size={20} /></div></div>
       <p className="settings-device-note">{canControlBrightness && canControlVolume ? "Brightness and volume control this tablet." : "Device controls are unavailable in this kiosk build."}</p>
       <button className="primary-button settings-done" onClick={() => setSettingsOpen(false)}>All set <span>✓</span></button>
     </section></div>}

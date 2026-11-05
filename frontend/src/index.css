@@ -44,9 +44,9 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
 .team-switch { gap: 9px; min-height: 38px; padding: 4px 11px 4px 6px; border-radius: 22px; font-size: 12px; font-weight: 600; }
 .team-switch .team-badge { width: 26px; height: 26px; border: 0; }
 .chevron { display: block; width: 7px; height: 7px; flex: none; margin: -2px 2px 0 4px; border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted); transform: rotate(45deg); }
-.icon-button { width: 38px; height: 38px; border-radius: 50%; font-size: 19px; transition: border-color .15s, color .15s; }
+.icon-button { width: 38px; height: 38px; border-radius: 50%; transition: border-color .15s, color .15s; }
 .icon-button:hover { color: var(--team-accent); border-color: var(--team-accent); }
-.settings-glyph { line-height: 1; }
+.icon-button svg { display: block; }
 .hero { position: relative; display: flex; align-items: center; justify-content: space-between; min-height: 188px; padding: 30px 34px; margin-top: 22px; overflow: hidden; border: 1px solid var(--team-accent-border); border-radius: 15px; background: radial-gradient(ellipse at 77% 20%, var(--team-accent-glow), transparent 50%), var(--surface); }
 .hero-team, .hero-summary, .live-content { position: relative; z-index: 1; }
 .hero-team { display: flex; align-items: center; gap: 22px; min-width: 40%; }
@@ -89,7 +89,7 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
 .table-season { color: var(--faint); font: 500 9px 'DM Mono', monospace; letter-spacing: .09em; }
 .table-wrap { flex: 1; overflow: auto; scrollbar-color: var(--line) transparent; scrollbar-width: thin; }
 table { width: 100%; border-collapse: collapse; text-align: center; white-space: nowrap; table-layout: fixed; }
-thead th { height: 29px; border-bottom: 1px solid var(--line); color: var(--faint); font: 500 8px 'DM Mono', monospace; letter-spacing: .09em; }
+thead th { position: sticky; top: 0; z-index: 2; height: 29px; border-bottom: 1px solid var(--line); color: var(--faint); background: var(--surface); font: 500 8px 'DM Mono', monospace; letter-spacing: .09em; }
 thead th.club-col { text-align: left; padding-left: 12px; }
 tbody tr { height: 32px; border-bottom: 1px solid var(--table-divider); color: var(--muted); font: 400 10px 'DM Mono', monospace; }
 tbody tr:last-child { border-bottom: 0; }
@@ -112,12 +112,53 @@ tbody tr.position-separator td span { display: block; border-top: 2px dashed var
 .points-cell { font-weight: 600; color: var(--text); }
 .table-footer { display: flex; justify-content: flex-end; border-top: 1px solid var(--line); padding-top: 11px; margin-top: 8px; color: var(--faint); font: 400 8px 'DM Mono', monospace; letter-spacing: .04em; }
 .fixtures-column { display: flex; min-height: 400px; flex-direction: column; gap: 13px; }
-.summary-panel { display: flex; flex: none; height: 96px; align-items: center; justify-content: space-around; padding: 12px 19px; }
-.summary-panel .summary-block { min-width: 0; gap: 6px; }
-.summary-panel .summary-block > strong { font-size: 32px; }
-.summary-panel .summary-divider { height: 50px; }
-.summary-panel .form-pills { height: 24px; }
-.summary-panel .form-pill { width: 22px; height: 22px; }
+.today-game-panel { display: flex; min-height: 300px; flex: 0 0 auto; flex-direction: column; gap: 8px; padding: 12px 15px; }
+.today-game-heading { display: flex; flex: none; align-items: center; justify-content: space-between; }
+.today-game-heading h2 { margin: 0; color: var(--text); font: 700 20px/1.2 Manrope, sans-serif; }
+.today-game-time { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font: 600 12px 'DM Mono', monospace; }
+.today-game-time.is-live { color: #f28a83; }
+.today-game-time .live-pulse { width: 7px; height: 7px; }
+.today-scoreboard { display: grid; flex: none; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: start; gap: 8px; border-bottom: 1px solid var(--line); padding: 4px 0 10px; }
+.today-game-team { display: flex; min-width: 0; flex-direction: column; gap: 4px; color: var(--text); font-size: 13px; font-weight: 600; }
+.today-team-identity { display: flex; min-width: 0; min-height: 28px; align-items: center; gap: 8px; line-height: 1.2; }
+.today-game-team.home .today-team-identity { justify-content: flex-end; }
+.today-game-team.away .today-team-identity { justify-content: flex-start; }
+.today-team-identity span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 28px; }
+.today-game-team.home .today-team-identity span { text-align: right; }
+.today-game-team.away .today-team-identity span { text-align: left; }
+.today-team-identity .team-badge { width: 28px; height: 28px; }
+.today-team-scorers { display: flex; flex-direction: column; gap: 2px; color: var(--muted); font-size: 9px; font-weight: 400; }
+.today-game-team.home .today-team-scorers { align-items: flex-end; }
+.today-game-team.away .today-team-scorers { align-items: flex-start; }
+.today-team-scorer { display: flex; max-width: 100%; align-items: baseline; gap: 5px; }
+.today-team-scorer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.today-team-scorer small { flex: none; color: var(--faint); font: 400 8px 'DM Mono', monospace; }
+.today-game-score { display: flex; height: 28px; align-items: center; justify-content: center; gap: 7px; margin-top: 0; color: var(--text); font: 700 22px/28px 'DM Mono', monospace; }
+.today-game-score i { color: var(--faint); font-style: normal; font-weight: 400; }
+.today-game-score.scheduled { color: var(--faint); font: 500 11px 'DM Mono', monospace; }
+.today-game-details { min-height: auto; flex: none; overflow: visible; }
+.game-stats { min-width: 0; }
+.game-stats h3 { margin: 0 0 7px; color: var(--faint); font: 500 9px 'DM Mono', monospace; letter-spacing: .08em; text-transform: uppercase; }
+.game-stat { margin-bottom: 8px; }
+.game-stat-labels { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; color: var(--muted); font: 500 12px 'DM Mono', monospace; }
+.game-stat-labels strong { color: var(--text); font-size: 12px; font-weight: 700; }
+.game-stat-labels strong:first-child { text-align: left; }
+.game-stat-labels strong:last-child { text-align: right; }
+.game-stat-labels span { padding: 0 6px; text-align: center; }
+.game-stat-bar { display: flex; height: 6px; overflow: hidden; border-radius: 4px; margin-top: 4px; background: var(--surface-raised); }
+.game-stat-bar span { height: 100%; background: #737c70; }
+.game-stat-bar span.is-favourite { background: var(--team-accent); }
+.game-stat-team-bars { display: flex; flex-direction: row; gap: 9px; margin-top: 4px; }
+.game-stat-team-track { min-width: 0; height: 5px; flex: 1; overflow: hidden; border-radius: 4px; background: var(--surface-raised); }
+.game-stat-team-track span { display: block; height: 100%; border-radius: inherit; background: #737c70; }
+.game-stat-team-track.is-home span { margin-left: auto; }
+.game-stat-team-track span.is-favourite { background: var(--team-accent); }
+.game-detail-empty { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
+.standings-panel .panel-heading { align-items: center; }
+.standings-form { display: flex; align-items: center; gap: 10px; }
+.standings-form .table-season { font-size: 10px; }
+.standings-form .form-pills { height: 26px; }
+.standings-form .form-pill { width: 23px; height: 23px; }
 .live-panel { flex: none; padding: 11px 15px; }
 .live-panel .live-strip { padding: 7px 9px; }
 .live-panel .scoreboard { justify-content: space-between; gap: 9px; margin-top: 8px; }
@@ -126,7 +167,7 @@ tbody tr.position-separator td span { display: block; border-top: 2px dashed var
 .live-panel .score-team .team-badge { width: 20px; height: 20px; }
 .live-panel .scoreboard > strong { gap: 5px; font-size: 24px; }
 .fixture-panel { padding: 20px 21px 0; }
-.fixtures-column > .fixture-panel { display: flex; min-height: 150px; flex: 1; flex-direction: column; }
+.fixtures-column > .fixture-panel { display: flex; min-height: 170px; flex: 1 1 50%; flex-direction: column; }
 .fixtures-column > .fixture-panel { padding: 10px 17px 12px; }
 .fixture-panel .panel-heading { flex: none; }
 .fixture-return { border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; color: var(--team-accent); background: var(--surface-raised); font-size: 10px; font-weight: 600; white-space: nowrap; }
@@ -139,16 +180,18 @@ tbody tr.position-separator td span { display: block; border-top: 2px dashed var
 .fixture-date .fixture-live-label { display: inline-flex; align-items: center; gap: 6px; color: #f28a83; }
 .fixture-live-label .live-pulse { width: 7px; height: 7px; flex: none; }
 .fixture-row.live-fixture { border-top-color: rgba(241, 105, 98, .4); }
-.fixture-match { display: grid; grid-template-columns: minmax(0, 1fr) 22px minmax(0, 1fr); align-items: center; gap: 2px; padding: 13px 0 14px; }
+.fixture-match { display: grid; grid-template-columns: minmax(0, 1fr) 68px minmax(0, 1fr); align-items: center; gap: 2px; padding: 13px 0 14px; }
 .fixture-side { display: flex; min-width: 0; align-items: center; gap: 7px; color: var(--muted); font-size: 10px; }
 .fixture-side:first-child { justify-content: flex-end; }
+.fixture-side:last-child { justify-content: flex-start; }
 .fixture-side span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fixture-side b { color: var(--text); font: 600 13px 'DM Mono', monospace; }
 .fixture-side.is-favourite { color: var(--team-accent); font-weight: 700; }
 .fixture-side.is-favourite b { color: var(--team-accent); }
 .fixture-divider { color: var(--faint); text-align: center; font: 400 8px 'DM Mono', monospace; }
-.fixture-divider.has-live-clock { position: relative; display: block; }
-.fixture-minute { position: absolute; bottom: 100%; left: 50%; margin-bottom: 14px; color: #f28a83; font: 600 10px/1.2 'DM Mono', monospace; white-space: nowrap; transform: translateX(-50%); }
+.fixture-divider.is-live { display: flex; align-items: center; justify-content: center; }
+.fixture-score-line { display: flex; align-items: center; justify-content: center; gap: 4px; color: var(--text); font: 600 14px 'DM Mono', monospace; }
+.fixture-score-line i { color: var(--faint); font-style: normal; font-weight: 400; }
 .next-panel { padding-bottom: 0; }
 .next-date { display: flex; align-items: center; gap: 9px; border-top: 1px solid var(--line); padding: 11px 0 12px; color: var(--muted); font-size: 9px; }
 .next-date b { margin-left: auto; color: var(--text); font: 500 9px 'DM Mono', monospace; }
@@ -237,3 +280,9 @@ tbody tr { height: 42px; font-size: 14px; }
 @media (max-width: 1050px) { .app-shell { padding-right: 3vw; padding-left: 3vw; }.dashboard-grid { grid-template-columns: minmax(0, 1.1fr) minmax(310px, .9fr); gap: 11px; }.standings-panel { padding-right: 15px; padding-left: 15px; }.selected-row .position-cell::before { left: -15px; }.wide-stat { display: none; }.hero-summary { padding-right: 2vw; gap: 22px; }.hero-team { gap: 16px; } }
 @media (max-width: 760px) { .topbar { height: 60px; gap: 14px; }.topbar-context { display: flex; min-width: 0; overflow: hidden; }.topbar-club { gap: 7px; }.topbar-crest { width: 30px; height: 30px; }.topbar-club-copy strong { max-width: 125px; font-size: 12px; }.topbar-club-copy small { font-size: 9px; }.dashboard-grid { grid-template-columns: 1fr; }.standings-panel { max-height: 520px; }.fixtures-column { min-height: auto; }.page-footer { font-size: 9px; }.club-col { min-width: 0; } }
 @media (max-width: 450px) { .app-shell { padding: 0 14px 14px; }.brand { font-size: 10px; }.team-switch { max-width: 150px; }.team-switch > span:nth-of-type(1) { overflow: hidden; max-width: 82px; text-overflow: ellipsis; white-space: nowrap; }.hero { margin-top: 14px; }.scoreboard { gap: 10px; }.score-team { gap: 4px; font-size: 9px; }.scoreboard > strong { font-size: 25px; }.standings-panel { padding: 17px 12px 12px; }.selected-row .position-cell::before { left: -12px; }.club-cell { padding-left: 5px; }.club-info { gap: 5px; }.club-cell strong { max-width: 115px; font-size: 9px; }.pos-col { width: 28px; }.pts-col { width: 27px; }tbody tr { font-size: 9px; }.panel-heading h2 { font-size: 18px; }.fixture-panel { padding-right: 15px; padding-left: 15px; }.page-footer span:last-child { text-align: right; } }
+
+.modal-close svg, .icon-button svg { display: block; }
+.icon-button { width: 48px; height: 48px; border-radius: 10px; }
+.modal-close { width: 48px; height: 48px; border-radius: 9px; }
+.mode-switch button svg { margin-right: 6px; vertical-align: -3px; }
+.range-row > svg { flex: none; color: var(--muted); }
