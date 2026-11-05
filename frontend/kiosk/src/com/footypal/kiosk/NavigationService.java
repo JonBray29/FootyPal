@@ -80,7 +80,7 @@ public class NavigationService extends AccessibilityService {
       }
     });
     addButton("Back", view -> performGlobalAction(GLOBAL_ACTION_BACK));
-    addButton("Dashboard", view -> startActivity(new Intent(this, MainActivity.class)
+    addButton("Back to FootyPal", view -> startActivity(new Intent(this, MainActivity.class)
         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP)));
     updateVisibility();
   }
@@ -91,8 +91,12 @@ public class NavigationService extends AccessibilityService {
     button.setAllCaps(false);
     button.setTextColor(Color.WHITE);
     button.setTextSize(17);
-    button.setBackgroundColor(Color.TRANSPARENT);
+    GradientDrawable buttonBackground = new GradientDrawable();
+    buttonBackground.setColor(Color.rgb(50, 75, 60));
+    buttonBackground.setCornerRadius(dp(8));
+    button.setBackground(buttonBackground);
     button.setPadding(dp(14), 0, dp(14), 0);
+    button.setMinHeight(dp(52));
     button.setOnClickListener(click);
     bar.addView(button, new LinearLayout.LayoutParams(
         LinearLayout.LayoutParams.WRAP_CONTENT, dp(48)));

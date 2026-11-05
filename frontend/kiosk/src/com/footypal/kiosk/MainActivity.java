@@ -11,6 +11,7 @@ import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.media.AudioManager;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.net.Uri;
@@ -25,6 +26,9 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
 import android.webkit.WebSettings;
+import android.webkit.ConsoleMessage;
+import android.webkit.JavascriptInterface;
+import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Button;
@@ -40,7 +44,7 @@ import java.util.Collections;
 /**
  * Full-screen kiosk WebView for the FootyPal wall tablet.
  * - Immersive mode hides the status + navigation bars (true 1280x800).
- * - Controls: hold two fingers still on the screen for 1.5s for launcher/settings/Wi-Fi/reload.
+ * - Controls: tap the screen ten times quickly for launcher/settings/Wi-Fi/reload.
  * - Offline: a failed page load shows a native screen instead of WebView's error page (which
  *   prints the full URL, including any token in it). With no Wi-Fi it offers Wi-Fi settings.
  * - Remote debugging is OFF unless launched with the debug extra (every app on this device
@@ -57,17 +61,21 @@ public class MainActivity extends Activity {
   static final String DEFAULT_URL = "http://127.0.0.1:8765/";
   static final String PREFS = "kiosk";
   static final String PREF_URL = "url";
-  static final long EXIT_HOLD_MS = 1500;
+  static final long CONTROL_TAP_WINDOW_MS = 1200;
+  static final long CONTROL_TAP_MAX_DURATION_MS = 500;
+  static final int CONTROL_TAP_COUNT = 10;
   static final long RETRY_MS = 5000;
   static final long STALL_MS = 15000;
   static final float EXIT_SLOP_PX = 60;
 
   private WebView web;
+  private boolean deviceBridgeInstalled;
   private final Handler handler = new Handler(Looper.getMainLooper());
-  private final int[] exitIds = new int[2];
-  private final float[] exitX = new float[2];
-  private final float[] exitY = new float[2];
-  private boolean exitArmed;
+  private int controlTapCount;
+  private long lastControlTapTime;
+  private long controlTapStartTime;
+  private float controlTapX, controlTapY;
+  private boolean controlTapCandidate;
   private String retryUrl;
   private boolean pageFailed;
   private LinearLayout offline;
@@ -111,8 +119,8 @@ public class MainActivity extends Activity {
   private final Runnable showControls = new Runnable() {
     @Override
     public void run() {
-      exitArmed = false;
-      Log.i(TAG, "Two-finger hold: opening controls");
+      controlTapCount = 0;
+      Log.i(TAG, "Ten-tap gesture: opening controls");
       new AlertDialog.Builder(MainActivity.this)
           .setTitle("FootyPal")
           .setItems(new String[] {"Open launcher", "Android settings", "Wi-Fi settings", "Reload dashboard"},
@@ -141,6 +149,15 @@ public class MainActivity extends Activity {
     s.setDomStorageEnabled(true);
     s.setUseWideViewPort(true);
     s.setMediaPlaybackRequiresUserGesture(false);
+    web.setWebChromeClient(new WebChromeClient() {
+      @Override
+      public boolean onConsoleMessage(ConsoleMessage message) {
+        if (message.messageLevel() == ConsoleMessage.MessageLevel.ERROR) {
+          Log.e(TAG, "Web console: " + message.message() + " at " + message.sourceId() + ":" + message.lineNumber());
+        }
+        return true;
+      }
+    });
     // Keep navigation inside the kiosk. When the kiosk starts at boot before Wi-Fi is up, the
     // first load fails and would stay on the error page, so retry failed main-frame loads.
     // The offline screen covers WebView's error page until a load succeeds.
@@ -209,6 +226,7 @@ public class MainActivity extends Activity {
       @Override
       public void onPageStarted(WebView view, String url, Bitmap icon) {
         pageFailed = false;
+        configureDeviceBridge(url);
       }
 
       @Override
@@ -241,9 +259,12 @@ public class MainActivity extends Activity {
     root.addView(web);
     root.addView(buildOffline());
     setContentView(root);
+    applySavedBrightness();
 
     String url = urlFrom(getIntent());
-    web.loadUrl(url != null ? url : savedUrl());
+    String initialUrl = url != null ? url : savedUrl();
+    configureDeviceBridge(initialUrl);
+    web.loadUrl(initialUrl);
     @SuppressWarnings("deprecation")
     IntentFilter connectivity = new IntentFilter(ConnectivityManager.CONNECTIVITY_ACTION);
     registerReceiver(networkChange, connectivity);
@@ -257,7 +278,7 @@ public class MainActivity extends Activity {
 
   @Override
   protected void onPause() {
-    cancelExit();
+    cancelControlTaps();
     NavigationService.setDashboardVisible(false);
     super.onPause();
   }
@@ -273,6 +294,7 @@ public class MainActivity extends Activity {
       handler.removeCallbacks(retry);
       handler.removeCallbacks(stall);
       retryUrl = url;
+      configureDeviceBridge(url);
       web.loadUrl(url);
     }
   }
@@ -371,6 +393,63 @@ public class MainActivity extends Activity {
     }
   }
 
+  /** Narrow bridge used by the dashboard settings for this kiosk's own display and media volume. */
+  public final class DeviceControls {
+    @JavascriptInterface
+    public int getBrightness() {
+      return getSharedPreferences(PREFS, MODE_PRIVATE).getInt("brightness", 75);
+    }
+
+    @JavascriptInterface
+    public void setBrightness(int percent) {
+      final int value = Math.max(10, Math.min(100, percent));
+      getSharedPreferences(PREFS, MODE_PRIVATE).edit().putInt("brightness", value).apply();
+      runOnUiThread(() -> applyBrightness(value));
+    }
+
+    @JavascriptInterface
+    public int getVolume() {
+      AudioManager audio = (AudioManager) getSystemService(AUDIO_SERVICE);
+      int maximum = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
+      if (maximum <= 0) return 0;
+      return Math.round(audio.getStreamVolume(AudioManager.STREAM_MUSIC) * 100f / maximum);
+    }
+
+    @JavascriptInterface
+    public void setVolume(int percent) {
+      final int value = Math.max(0, Math.min(100, percent));
+      AudioManager audio = (AudioManager) getSystemService(AUDIO_SERVICE);
+      int maximum = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
+      int target = Math.round(maximum * value / 100f);
+      audio.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0);
+    }
+  }
+
+  private void applySavedBrightness() {
+    android.content.SharedPreferences preferences = getSharedPreferences(PREFS, MODE_PRIVATE);
+    if (preferences.contains("brightness")) applyBrightness(preferences.getInt("brightness", 75));
+  }
+
+  private void applyBrightness(int percent) {
+    WindowManager.LayoutParams attributes = getWindow().getAttributes();
+    attributes.screenBrightness = Math.max(10, Math.min(100, percent)) / 100f;
+    getWindow().setAttributes(attributes);
+  }
+
+  private void configureDeviceBridge(String pageUrl) {
+    Uri uri = Uri.parse(pageUrl);
+    boolean dashboardAsset = "http".equalsIgnoreCase(uri.getScheme())
+        && "127.0.0.1".equals(uri.getHost())
+        && (uri.getPort() == 8765 || uri.getPort() == 5173);
+    if (dashboardAsset && !deviceBridgeInstalled) {
+      web.addJavascriptInterface(new DeviceControls(), "FootyPalDevice");
+      deviceBridgeInstalled = true;
+    } else if (!dashboardAsset && deviceBridgeInstalled) {
+      web.removeJavascriptInterface("FootyPalDevice");
+      deviceBridgeInstalled = false;
+    }
+  }
+
   /**
    * Some frames (PF1007L) run a vendor BackgroundManagerService that drops the navigation service
    * after the kiosk is updated or force-stopped, leaving no way back from Settings. If the owner
@@ -433,39 +512,49 @@ public class MainActivity extends Activity {
     Log.i(TAG, "Home alias " + (home ? "on" : "off"));
   }
 
-  /** Watches for the two-finger exit hold; all touches still go to the page. */
+  /** Watches for ten quick taps; all touches still go to the page. */
   @Override
   public boolean dispatchTouchEvent(MotionEvent e) {
     switch (e.getActionMasked()) {
-      case MotionEvent.ACTION_POINTER_DOWN:
-        if (e.getPointerCount() == 2) {
-          for (int i = 0; i < 2; i++) {
-            exitIds[i] = e.getPointerId(i);
-            exitX[i] = e.getX(i);
-            exitY[i] = e.getY(i);
-          }
-          exitArmed = true;
-          handler.removeCallbacks(showControls);
-          handler.postDelayed(showControls, EXIT_HOLD_MS);
-        } else {
-          cancelExit(); // 3+ fingers
+      case MotionEvent.ACTION_DOWN:
+        if (e.getPointerCount() == 1) {
+          controlTapCandidate = true;
+          controlTapStartTime = e.getEventTime();
+          controlTapX = e.getX();
+          controlTapY = e.getY();
         }
         break;
       case MotionEvent.ACTION_MOVE:
-        if (exitArmed) {
-          for (int i = 0; i < 2; i++) {
-            int idx = e.findPointerIndex(exitIds[i]);
-            if (idx < 0 || Math.hypot(e.getX(idx) - exitX[i], e.getY(idx) - exitY[i]) > EXIT_SLOP_PX) {
-              cancelExit();
-              break;
-            }
-          }
+        if (controlTapCandidate
+            && Math.hypot(e.getX() - controlTapX, e.getY() - controlTapY) > EXIT_SLOP_PX) {
+          cancelControlTaps();
         }
         break;
-      case MotionEvent.ACTION_POINTER_UP:
+      case MotionEvent.ACTION_POINTER_DOWN:
+        cancelControlTaps();
+        break;
       case MotionEvent.ACTION_UP:
+        if (controlTapCandidate) {
+          long duration = e.getEventTime() - controlTapStartTime;
+          boolean stayedStill = Math.hypot(e.getX() - controlTapX, e.getY() - controlTapY) <= EXIT_SLOP_PX;
+          if (duration <= CONTROL_TAP_MAX_DURATION_MS && stayedStill) {
+            if (e.getEventTime() - lastControlTapTime > CONTROL_TAP_WINDOW_MS) controlTapCount = 0;
+            controlTapCount++;
+            lastControlTapTime = e.getEventTime();
+            if (controlTapCount >= CONTROL_TAP_COUNT) {
+              controlTapCandidate = false;
+              handler.removeCallbacks(showControls);
+              handler.post(showControls);
+            }
+          } else {
+            cancelControlTaps();
+          }
+        }
+        controlTapCandidate = false;
+        break;
+      case MotionEvent.ACTION_POINTER_UP:
       case MotionEvent.ACTION_CANCEL:
-        cancelExit();
+        cancelControlTaps();
         break;
       default:
         break;
@@ -473,9 +562,9 @@ public class MainActivity extends Activity {
     return super.dispatchTouchEvent(e);
   }
 
-  private void cancelExit() {
-    if (!exitArmed) return;
-    exitArmed = false;
+  private void cancelControlTaps() {
+    controlTapCandidate = false;
+    controlTapCount = 0;
     handler.removeCallbacks(showControls);
   }
 
