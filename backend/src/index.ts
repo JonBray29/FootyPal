@@ -20,6 +20,11 @@ import type {
 
 export const app = express();
 
+app.use((req, res, next) => {
+    res.setHeader("Access-Control-Allow-Origin", "http://127.0.0.1:8765");
+    next();
+});
+
 app.use(express.json());
 app.use("/health", healthRouter);
 
@@ -308,4 +313,3 @@ app.get("/api/game/:eventId", async (req, res) => {
         }
     }
 });
-

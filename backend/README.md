@@ -28,7 +28,7 @@ take time. The game mapping tests use mocked ESPN responses.
 
 ## Typical client flow
 
-1. Request `/api/leagues` and let the user select a league.
+1. Request `/api/leagues` and let the user select a league. Each league includes its ESPN logo URL.
 2. Request `/api/leagues/:slug/teams` and let the user select a team.
 3. Request `/api/teams/:teamId` to display the team profile, standings and fixtures.
 4. Use a fixture's `eventId` with `/api/game/:eventId` for the match detail view.
@@ -111,14 +111,16 @@ failed. If the FootyPal process itself is down, this endpoint cannot respond.
 Example: `http://localhost:3000/api/leagues`
 
 Returns the configured supported leagues. `slug` is the value needed for the
-league teams endpoint. `ref` is the ESPN Core API reference for the league.
+league teams endpoint. `ref` is the ESPN Core API reference for the league, and
+`logo` is its default ESPN CDN logo URL.
 
 ```json
 [
   {
     "name": "Premier League",
     "slug": "eng.1",
-    "ref": "http://sports.core.api.espn.com/v2/sports/soccer/leagues/eng.1"
+    "ref": "http://sports.core.api.espn.com/v2/sports/soccer/leagues/eng.1",
+    "logo": "https://a.espncdn.com/i/leaguelogos/soccer/500/23.png"
   },
   {
     "name": "EFL Championship",
