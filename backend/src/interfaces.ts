@@ -13,6 +13,8 @@ export interface ILeague {
   slug: string;
   /** ESPN Core API league record reference. */
   ref: string;
+  /** ESPN CDN logo for the league. */
+  logo: string;
 }
 
 export interface ITeamLogo {
