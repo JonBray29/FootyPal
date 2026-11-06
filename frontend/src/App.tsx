@@ -114,11 +114,12 @@ function UiIcon({ name, size = 20 }: { name: UiIconName; size?: number }) {
   </svg>;
 }
 
-function FixtureRow({ fixture, result = false, live = false, isReturnTarget = false, highlightedId }: { fixture: Fixture; result?: boolean; live?: boolean; isReturnTarget?: boolean; highlightedId: string }) {
+function FixtureRow({ fixture, result = false, live = false, previous = false, expandable = false, isReturnTarget = false, highlightedId, onOpen }: { fixture: Fixture; result?: boolean; live?: boolean; previous?: boolean; expandable?: boolean; isReturnTarget?: boolean; highlightedId: string; onOpen?: (fixture: Fixture) => void }) {
   const homeIsFavourite = fixture.homeTeam.id === highlightedId;
   const awayIsFavourite = fixture.awayTeam.id === highlightedId;
   const showScore = result || live;
-  return <article className={`fixture-row ${live ? "live-fixture" : ""}`} data-return-target={isReturnTarget ? "true" : undefined}>
+  const canOpen = (previous || expandable) && !!onOpen;
+  return <article className={`fixture-row ${live ? "live-fixture" : ""} ${canOpen ? "clickable-fixture" : ""}`} role={canOpen ? "button" : undefined} tabIndex={canOpen ? 0 : undefined} aria-label={canOpen ? `View ${fixture.homeTeam.name} versus ${fixture.awayTeam.name} match details` : undefined} onClick={canOpen ? () => onOpen?.(fixture) : undefined} onKeyDown={canOpen ? (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onOpen?.(fixture); } } : undefined} data-return-target={isReturnTarget ? "true" : undefined}>
     <div className="fixture-date">{live ? <span className="fixture-live-label"><i className="live-pulse" />LIVE</span> : <span>{dateLabel(fixture.date)}</span>}{live ? <span>{fixture.date ? dateLabel(fixture.date, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : "IN PLAY"}</span> : fixture.date && <span>{dateLabel(fixture.date, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" })}</span>}</div>
     <div className="fixture-match">
       <div className={`fixture-side ${homeIsFavourite ? "is-favourite" : ""}`}>
@@ -136,7 +137,7 @@ function FixtureRow({ fixture, result = false, live = false, isReturnTarget = fa
   </article>;
 }
 
-function TodayGamePanel({ game, details, highlightedId }: { game: TodaysGame; details: GameDetails | null; highlightedId: string }) {
+function TodayGamePanel({ game, details, highlightedId, title = "Today’s game", loading = false, showHeading = true, onExpand, scoreTimeLabel, scoreTimeIsLive = false }: { game: TodaysGame; details: GameDetails | null; highlightedId: string; title?: string; loading?: boolean; showHeading?: boolean; onExpand?: () => void; scoreTimeLabel?: string; scoreTimeIsLive?: boolean }) {
   const { fixture } = game;
   const status = details?.status.type ?? game.status;
   const isLive = status === "LIVE";
@@ -175,16 +176,16 @@ function TodayGamePanel({ game, details, highlightedId }: { game: TodaysGame; de
     return Array.from(scorerMinutes, ([scorerName, minutes]) => <div className="today-team-scorer" key={`${teamId}-${scorerName}`}><span>{scorerName}</span>{minutes.length > 0 && <small>{minutes.join(", ")}</small>}</div>);
   };
 
-  return <section className="panel today-game-panel">
-    <div className="today-game-heading"><h2>Today’s game</h2><span className={isLive ? "today-game-time is-live" : "today-game-time"}>{isLive && <i className="live-pulse" />}{timeLabel}</span></div>
-    <div className="today-scoreboard">
+  return <section className={`panel today-game-panel ${onExpand ? "expandable-game-panel" : ""}`} role={onExpand ? "button" : undefined} tabIndex={onExpand ? 0 : undefined} aria-label={onExpand ? "Open match details" : undefined} onClick={onExpand} onKeyDown={onExpand ? (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onExpand(); } } : undefined}>
+    {showHeading && <div className="today-game-heading"><h2>{title}</h2><span className={isLive ? "today-game-time is-live" : "today-game-time"}>{isLive && <i className="live-pulse" />}{timeLabel}</span></div>}
+    <div className={`today-scoreboard ${scoreTimeLabel ? "has-score-time" : ""}`}>
       <div className="today-game-team home"><div className="today-team-identity"><Badge src={fixture.homeTeam.logo} name={fixture.homeTeam.name} /><span>{fixture.homeTeam.name}</span></div><div className="today-team-scorers">{scorerRows(fixture.homeTeam.id)}</div></div>
-      {showScore ? <div className="today-game-score"><strong>{homeScore ?? "–"}</strong><i>:</i><strong>{awayScore ?? "–"}</strong></div> : <div className="today-game-score scheduled">VS</div>}
+      <div className="today-score-center">{scoreTimeLabel && <span className={`today-game-time ${scoreTimeIsLive ? "is-live" : ""}`}>{scoreTimeIsLive && <i className="live-pulse" />}{scoreTimeLabel}</span>}{showScore ? <div className="today-game-score"><strong>{homeScore ?? "–"}</strong><i>:</i><strong>{awayScore ?? "–"}</strong></div> : <div className="today-game-score scheduled">VS</div>}</div>
       <div className="today-game-team away"><div className="today-team-identity"><span>{fixture.awayTeam.name}</span><Badge src={fixture.awayTeam.logo} name={fixture.awayTeam.name} /></div><div className="today-team-scorers">{scorerRows(fixture.awayTeam.id)}</div></div>
     </div>
     <div className="today-game-details">
       <section className="game-stats">
-        {stats.length ? stats.map(({ key, label, suffix, home, away }) => {
+        {loading && !details ? <p className="game-detail-empty">Loading match details…</p> : stats.length ? stats.map(({ key, label, suffix, home, away }) => {
           const total = home + away;
           const homeShare = total > 0 ? (home / total) * 100 : 0;
           const awayShare = total > 0 ? (away / total) * 100 : 0;
@@ -200,13 +201,15 @@ function TodayGamePanel({ game, details, highlightedId }: { game: TodaysGame; de
     </div>
   </section>;
 }
-function FixturePanel({ fixtures, highlightedId, teamId, emptyMessage, targetEventId, returnLabel }: {
-  fixtures: { fixture: Fixture; live: boolean }[];
+function FixturePanel({ fixtures, highlightedId, teamId, emptyMessage, targetEventId, returnLabel, expandEventId, onFixtureSelect }: {
+  fixtures: { fixture: Fixture; live: boolean; previous?: boolean }[];
   highlightedId: string;
   teamId: string;
   emptyMessage: string;
   targetEventId?: string;
   returnLabel: string;
+  expandEventId?: string;
+  onFixtureSelect: (fixture: Fixture) => void;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
   const [showReturn, setShowReturn] = useState(false);
@@ -243,7 +246,7 @@ function FixturePanel({ fixtures, highlightedId, teamId, emptyMessage, targetEve
       {showReturn && <button className="fixture-return" onClick={returnToStart}>{returnLabel}</button>}
     </div>
     <div className="fixture-list" ref={listRef} onScroll={onScroll}>
-      {fixtures.length ? fixtures.map(({ fixture, live }) => <FixtureRow key={fixture.eventId} fixture={fixture} result={!live && fixture.homeTeamGoals !== undefined} live={live} isReturnTarget={fixture.eventId === targetEventId} highlightedId={highlightedId} />) : <div className="empty-state compact">{emptyMessage}</div>}
+      {fixtures.length ? fixtures.map(({ fixture, live, previous }) => <FixtureRow key={fixture.eventId} fixture={fixture} result={previous || (!live && fixture.homeTeamGoals !== undefined)} live={live} previous={previous} expandable={fixture.eventId === expandEventId} isReturnTarget={fixture.eventId === targetEventId} highlightedId={highlightedId} onOpen={onFixtureSelect} />) : <div className="empty-state compact">{emptyMessage}</div>}
     </div>
   </section>;
 }
@@ -275,6 +278,11 @@ export default function App() {
   const [screenSleepSeconds, setScreenSleepSeconds] = useState(0);
   const [screenBlanked, setScreenBlanked] = useState(false);
   const [gameDetails, setGameDetails] = useState<GameDetails | null>(null);
+  const [selectedMatch, setSelectedMatch] = useState<TodaysGame | null>(null);
+  const [matchDetails, setMatchDetails] = useState<GameDetails | null>(null);
+  const [matchDetailsEventId, setMatchDetailsEventId] = useState<string | null>(null);
+  const [loadingMatchDetails, setLoadingMatchDetails] = useState(false);
+  const [matchDetailsError, setMatchDetailsError] = useState("");
   const hasLoadedTeam = useRef(false);
   const standingsWrapRef = useRef<HTMLDivElement>(null);
   const lastScreenActivityRef = useRef(Date.now());
@@ -449,13 +457,78 @@ export default function App() {
     const interval = selectedGame.status === "LIVE" ? window.setInterval(refreshGame, 60_000) : undefined;
     return () => { controller.abort(); if (interval) window.clearInterval(interval); };
   }, [todayGame?.fixture.eventId, todayGame?.status]);
+
+  useEffect(() => {
+    if (!selectedMatch) {
+      setMatchDetails(null);
+      setMatchDetailsEventId(null);
+      setLoadingMatchDetails(false);
+      setMatchDetailsError("");
+      return;
+    }
+    const controller = new AbortController();
+    setMatchDetails(null);
+    setMatchDetailsEventId(null);
+    setLoadingMatchDetails(true);
+    setMatchDetailsError("");
+    api<GameDetails>(`/api/game/${encodeURIComponent(selectedMatch.fixture.eventId)}`, controller.signal)
+      .then((details) => {
+        if (!controller.signal.aborted) {
+          setMatchDetails(details);
+          setMatchDetailsEventId(selectedMatch.fixture.eventId);
+        }
+      })
+      .catch((err: unknown) => {
+        if (!controller.signal.aborted) setMatchDetailsError(err instanceof Error ? err.message : "Could not load match details");
+      })
+      .finally(() => { if (!controller.signal.aborted) setLoadingMatchDetails(false); });
+    return () => controller.abort();
+  }, [selectedMatch?.fixture.eventId]);
+
+  useEffect(() => {
+    if (!selectedMatch) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSelectedMatch(null);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [selectedMatch]);
   const timelineFixtures = [
-    ...previousFixtures.map((fixture) => ({ fixture, live: false })),
-    ...(live ? [{ fixture: live, live: true }] : []),
-    ...upcomingFixtures.map((fixture) => ({ fixture, live: false })),
+    ...previousFixtures.map((fixture) => ({ fixture, live: false, previous: true })),
+    ...(live ? [{ fixture: live, live: true, previous: false }] : []),
+    ...upcomingFixtures.map((fixture) => ({ fixture, live: false, previous: false })),
   ];
   const targetFixture = live ?? upcomingFixtures[0] ?? previousFixtures[previousFixtures.length - 1];
   const returnLabel = live ? "Return to live game" : upcomingFixtures.length ? "Return to next game" : "Return to latest fixture";
+  const openMatchDetails = (game: TodaysGame) => {
+    setMatchDetails(null);
+    setMatchDetailsEventId(null);
+    setLoadingMatchDetails(true);
+    setMatchDetailsError("");
+    setSelectedMatch(game);
+  };
+  const openFixtureDetails = (fixture: Fixture) => {
+    if (todayGame?.fixture.eventId === fixture.eventId) {
+      openMatchDetails(todayGame);
+      return;
+    }
+    openMatchDetails({ fixture, status: "FINISHED" });
+  };
+  const selectedMatchStatus = selectedMatch
+    ? matchDetailsEventId === selectedMatch.fixture.eventId
+      ? matchDetails?.status.type ?? selectedMatch.status
+      : selectedMatch.status
+    : undefined;
+  const selectedMatchDate = selectedMatch?.fixture.date ?? null;
+  const selectedMatchIsToday = isToday(selectedMatchDate);
+  const selectedMatchTitle = selectedMatchIsToday ? "Today’s game" : "Previous result";
+  const selectedMatchTime = selectedMatchIsToday
+    ? selectedMatchStatus === "FINISHED"
+      ? "FT"
+      : selectedMatchStatus === "LIVE"
+        ? (matchDetailsEventId === selectedMatch?.fixture.eventId ? matchDetails?.status.clock : null) ?? "LIVE"
+        : selectedMatchDate ? dateLabel(selectedMatchDate, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : "Time TBC"
+    : dateLabel(selectedMatchDate, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 
   return <main className={`app-shell ${mode}`} style={{
     "--team-accent": accent,
@@ -506,8 +579,8 @@ export default function App() {
 
         <div className="fixtures-column">
 
-          {todayGame && <TodayGamePanel game={todayGame} details={gameDetails} highlightedId={team.id} />}
-          <FixturePanel fixtures={timelineFixtures} highlightedId={team.id} teamId={team.id} emptyMessage="No fixtures to show." targetEventId={targetFixture?.eventId} returnLabel={returnLabel} />
+          {todayGame && <TodayGamePanel game={todayGame} details={gameDetails} highlightedId={team.id} onExpand={() => openMatchDetails(todayGame)} />}
+          <FixturePanel fixtures={timelineFixtures} highlightedId={team.id} teamId={team.id} emptyMessage="No fixtures to show." targetEventId={targetFixture?.eventId} returnLabel={returnLabel} expandEventId={todayGame?.fixture.eventId} onFixtureSelect={openFixtureDetails} />
         </div>
       </section>
     </>}
@@ -561,6 +634,11 @@ export default function App() {
       </div>
       <p className="settings-device-note">{canControlBrightness && canControlVolume ? "Brightness and volume control this tablet." : "Device controls are unavailable in this kiosk build."}</p>
       <p className="settings-device-note">{!canControlSleep ? "Screen sleep is available in the Android frame app." : "After inactivity, the display goes black. Tap anywhere to wake it."}</p>
+    </section></div>}
+    {selectedMatch && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedMatch(null); }}><section className="modal game-details-modal" role="dialog" aria-modal="true" aria-label={selectedMatchTitle}>
+      <div className="modal-topline"><div className="eyebrow">{selectedMatchTitle}</div><button className="modal-close" onClick={() => setSelectedMatch(null)} aria-label="Close"><UiIcon name="close" size={20} /></button></div>
+      {matchDetailsError && <div className="error-banner" role="alert"><span>{matchDetailsError}</span></div>}
+      <TodayGamePanel game={selectedMatch} details={matchDetailsEventId === selectedMatch.fixture.eventId ? matchDetails : null} highlightedId={team?.id ?? ""} loading={loadingMatchDetails || (matchDetailsEventId !== selectedMatch.fixture.eventId && !matchDetailsError)} showHeading={false} scoreTimeLabel={selectedMatchTime} scoreTimeIsLive={selectedMatchIsToday && selectedMatchStatus === "LIVE"} />
     </section></div>}
     {screenBlanked && <button type="button" className="screen-sleep-overlay" aria-label="Tap to wake display" />}
   </main>;

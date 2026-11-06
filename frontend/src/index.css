@@ -113,12 +113,16 @@ tbody tr.position-separator td span { display: block; border-top: 2px dashed var
 .table-footer { display: flex; justify-content: flex-end; border-top: 1px solid var(--line); padding-top: 11px; margin-top: 8px; color: var(--faint); font: 400 8px 'DM Mono', monospace; letter-spacing: .04em; }
 .fixtures-column { display: flex; min-height: 400px; flex-direction: column; gap: 13px; }
 .today-game-panel { display: flex; min-height: 300px; flex: 0 0 auto; flex-direction: column; gap: 8px; padding: 12px 15px; }
+.expandable-game-panel { cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+.expandable-game-panel:hover { border-color: var(--team-accent-border); }
+.expandable-game-panel:focus-visible { outline: 2px solid var(--team-accent); outline-offset: 2px; }
 .today-game-heading { display: flex; flex: none; align-items: center; justify-content: space-between; }
 .today-game-heading h2 { margin: 0; color: var(--text); font: 700 20px/1.2 Manrope, sans-serif; }
 .today-game-time { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font: 600 12px 'DM Mono', monospace; }
 .today-game-time.is-live { color: #f28a83; }
 .today-game-time .live-pulse { width: 7px; height: 7px; }
 .today-scoreboard { display: grid; flex: none; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: start; gap: 8px; border-bottom: 1px solid var(--line); padding: 4px 0 10px; }
+.today-scoreboard.has-score-time .today-game-team { padding-top: 25px; }
 .today-game-team { display: flex; min-width: 0; flex-direction: column; gap: 4px; color: var(--text); font-size: 13px; font-weight: 600; }
 .today-team-identity { display: flex; min-width: 0; min-height: 28px; align-items: center; gap: 8px; line-height: 1.2; }
 .today-game-team.home .today-team-identity { justify-content: flex-end; }
@@ -175,6 +179,9 @@ tbody tr.position-separator td span { display: block; border-top: 2px dashed var
 .fixtures-column > .fixture-panel .empty-state.compact { min-height: 0; flex: 1; }
 .fixture-panel .panel-heading { margin-bottom: 9px; }
 .fixture-row { border-top: 1px solid var(--line); padding-top: 11px; }
+.fixture-row.clickable-fixture { border-radius: 6px; cursor: pointer; transition: background .15s; }
+.fixture-row.clickable-fixture:hover { background: var(--surface-raised); }
+.fixture-row.clickable-fixture:focus-visible { outline: 2px solid var(--team-accent); outline-offset: 2px; }
 .fixture-date { display: flex; justify-content: space-between; color: var(--muted); font: 500 9px 'DM Mono', monospace; letter-spacing: .03em; }
 .fixture-date span { color: var(--faint); }
 .fixture-date .fixture-live-label { display: inline-flex; align-items: center; gap: 6px; color: #f28a83; }
@@ -293,3 +300,24 @@ tbody tr { height: 42px; font-size: 14px; }
 .mode-switch button svg { margin-right: 6px; vertical-align: -3px; }
 .range-row > svg { flex: none; color: var(--muted); }
 .screen-sleep-overlay { position: fixed; z-index: 1000; inset: 0; width: 100%; height: 100%; border: 0; border-radius: 0; padding: 0; background: #000; cursor: default; }
+.game-details-modal { width: min(100%, 800px); max-height: calc(100dvh - 32px); overflow-y: auto; }
+.game-details-modal .modal-topline { margin-bottom: 16px; }
+.game-details-modal .eyebrow { font-size: 22px; }
+.today-score-center { display: flex; min-width: 72px; flex-direction: column; align-items: center; gap: 4px; }
+.game-details-modal .today-score-center .today-game-time { font-size: 18px; }
+.game-details-modal .today-game-panel { min-height: 0; flex: none; overflow: visible; border: 0; padding: 0; background: transparent; box-shadow: none; }
+.game-details-modal .today-game-team { font-size: 26px; }
+.game-details-modal .today-team-identity { min-height: 48px; gap: 10px; }
+.game-details-modal .today-team-identity span { line-height: 48px; }
+.game-details-modal .today-team-identity .team-badge { width: 40px; height: 40px; }
+.game-details-modal .today-team-scorers { font-size: 18px; }
+.game-details-modal .today-team-scorer { gap: 8px; }
+.game-details-modal .today-team-scorer small { font-size: 16px; }
+.game-details-modal .today-game-score { height: 48px; font-size: 44px; line-height: 48px; }
+.game-details-modal .today-game-score i,
+.game-details-modal .today-game-score.scheduled { font-size: 0.75em; }
+.game-details-modal .game-stat-labels { font-size: 24px; }
+.game-details-modal .game-stat-labels strong { font-size: 24px; }
+.game-details-modal .game-stat-labels span { padding: 0 12px; }
+.game-details-modal .game-detail-empty { font-size: 20px; }
+.game-details-modal .error-banner { font-size: 24px; }
