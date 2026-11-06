@@ -162,8 +162,9 @@ missing logos produce an empty array.
 
 Example: `http://localhost:3000/api/teams/374`
 
-Returns a team profile and its league context. No league parameter is needed;
-the backend reads the team's default league from ESPN.
+Returns a team profile and its league context. No league parameter is needed.
+The backend resolves the team's current league by checking its membership in the
+supported ESPN league team lists, which avoids relying on a stale Core `defaultLeague`.
 
 ```json
 {
@@ -261,18 +262,19 @@ the backend reads the team's default league from ESPN.
   `positionType` enum; it does not calculate qualification or relegation rules.
 - `previousMatches` is ordered newest first. The results request currently uses
   the current UTC calendar year as ESPN's season parameter.
-- `upcomingFixtures` is ordered soonest first and uses the team's current Core
-  API season event list. Fixture goals are optional and omitted for upcoming games.
+- `upcomingFixtures` is ordered soonest first and comes from the resolved league's
+  season event list. Fixture goals are omitted for upcoming games.
 - `liveGame` uses the same fixture object as the arrays, with available current
-  scores. It is `null` when no live match is found. The live lookup searches all
-  competitions on today's and yesterday's UTC scoreboards, including cup matches.
+  scores. It is `null` when no live league match is found. The live lookup uses
+  the resolved league scoreboard for today and yesterday UTC, excluding cups.
   A live fixture is excluded from the previous/upcoming arrays.
 - Fixture team objects have `{ id, name, abbreviation, logo }`; `logo` is one URL
   or `null`, whereas the main profile's `logos` contains all available variants.
 - The `*Ref` fields are ESPN URLs for clients that need the underlying resources.
 - Optional profile values can be `null`, and collections can be empty where no
-  data is available. Results and upcoming fixtures are drawn from the default
-  league's season sources, rather than a combined schedule across competitions.
+  data is available. Previous and upcoming fixtures come from the resolved
+  league's season sources, and live matches from that league's scoreboard.
+  Cup matches are excluded from all three fixture collections.
 
 `positionType` values:
 
