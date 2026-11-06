@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, use
 
 type League = { name: string; slug: string; ref: string; logo: string };
 type TeamOption = { id: string; name: string; abbreviation: string | null; logos: { href: string; rel?: string[] }[] };
+type FavoriteTeam = { id: string; name: string; leagueSlug: string; logo: string | null };
 type TeamSimple = { id: string; name: string; abbreviation: string | null; logo: string | null };
 type Fixture = { eventId: string; date: string | null; homeTeam: TeamSimple; awayTeam: TeamSimple; homeTeamGoals?: number; awayTeamGoals?: number };
 type GameStatLine = { possession: number | null; shots: number | null; shotsOnTarget: number | null; corners: number | null; fouls: number | null; offsides: number | null; saves: number | null };
@@ -44,8 +45,14 @@ const API = import.meta.env.DEV ? "" : (import.meta.env.VITE_API_BASE_URL ?? "")
 const getSaved = (key: string, fallback: string) => {
   try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; }
 };
+const getSavedFavoriteTeams = (): FavoriteTeam[] => {
+  try {
+    const value: unknown = JSON.parse(getSaved("footypal.favorites", "[]"));
+    return Array.isArray(value) ? value.filter((item): item is FavoriteTeam => item && typeof item.id === "string" && typeof item.name === "string" && typeof item.leagueSlug === "string" && (typeof item.logo === "string" || item.logo === null)).slice(0, 4) : [];
+  } catch { return []; }
+};
 const api = async <T,>(path: string, signal?: AbortSignal): Promise<T> => {
-  const response = await fetch(`${API}${path}`, { signal });
+  const response = await fetch(`${API}${path}`, { signal, cache: "no-store" });
   if (!response.ok) {
     let message = `Request failed (${response.status})`;
     try { message = (await response.json()).error ?? message; } catch { /* use status */ }
@@ -146,6 +153,8 @@ function TodayGamePanel({ game, details, highlightedId, title = "Today’s game"
     : isLive
       ? details?.status.clock ?? "LIVE"
       : fixture.date ? dateLabel(fixture.date, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : "Time TBC";
+  const displayScoreTime = scoreTimeLabel ?? (showHeading ? timeLabel : undefined);
+  const displayScoreTimeIsLive = scoreTimeLabel ? scoreTimeIsLive : showHeading && isLive;
   const homeScore = details?.homeTeamGoals ?? fixture.homeTeamGoals;
   const awayScore = details?.awayTeamGoals ?? fixture.awayTeamGoals;
   const showScore = status === "LIVE" || status === "FINISHED" || homeScore !== undefined;
@@ -177,10 +186,10 @@ function TodayGamePanel({ game, details, highlightedId, title = "Today’s game"
   };
 
   return <section className={`panel today-game-panel ${onExpand ? "expandable-game-panel" : ""}`} role={onExpand ? "button" : undefined} tabIndex={onExpand ? 0 : undefined} aria-label={onExpand ? "Open match details" : undefined} onClick={onExpand} onKeyDown={onExpand ? (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onExpand(); } } : undefined}>
-    {showHeading && <div className="today-game-heading"><h2>{title}</h2><span className={isLive ? "today-game-time is-live" : "today-game-time"}>{isLive && <i className="live-pulse" />}{timeLabel}</span></div>}
-    <div className={`today-scoreboard ${scoreTimeLabel ? "has-score-time" : ""}`}>
+    {showHeading && <div className="today-game-heading"><h2>{title}</h2></div>}
+    <div className={`today-scoreboard ${displayScoreTime ? "has-score-time" : ""}`}>
       <div className="today-game-team home"><div className="today-team-identity"><Badge src={fixture.homeTeam.logo} name={fixture.homeTeam.name} /><span>{fixture.homeTeam.name}</span></div><div className="today-team-scorers">{scorerRows(fixture.homeTeam.id)}</div></div>
-      <div className="today-score-center">{scoreTimeLabel && <span className={`today-game-time ${scoreTimeIsLive ? "is-live" : ""}`}>{scoreTimeIsLive && <i className="live-pulse" />}{scoreTimeLabel}</span>}{showScore ? <div className="today-game-score"><strong>{homeScore ?? "–"}</strong><i>:</i><strong>{awayScore ?? "–"}</strong></div> : <div className="today-game-score scheduled">VS</div>}</div>
+      <div className={`today-score-center ${displayScoreTime ? "has-score-time" : ""}`}>{displayScoreTime && <span className={`today-game-time ${displayScoreTimeIsLive ? "is-live" : ""}`}>{displayScoreTimeIsLive && <i className="live-pulse" />}{displayScoreTime}</span>}{showScore ? <div className="today-game-score"><strong>{homeScore ?? "–"}</strong><i>:</i><strong>{awayScore ?? "–"}</strong></div> : <div className="today-game-score scheduled">VS</div>}</div>
       <div className="today-game-team away"><div className="today-team-identity"><span>{fixture.awayTeam.name}</span><Badge src={fixture.awayTeam.logo} name={fixture.awayTeam.name} /></div><div className="today-team-scorers">{scorerRows(fixture.awayTeam.id)}</div></div>
     </div>
     <div className="today-game-details">
@@ -257,6 +266,7 @@ export default function App() {
   const [draftLeagueSlug, setDraftLeagueSlug] = useState(() => getSaved("footypal.league", ""));
   const [teamId, setTeamId] = useState(() => getSaved("footypal.team", ""));
   const [draftTeamId, setDraftTeamId] = useState(() => getSaved("footypal.team", ""));
+  const [favoriteTeams, setFavoriteTeams] = useState<FavoriteTeam[]>(getSavedFavoriteTeams);
   const [teams, setTeams] = useState<TeamOption[]>([]);
   const [team, setTeam] = useState<Team | null>(null);
   const [mode, setMode] = useState<"light" | "dark">(() => getSaved("footypal.mode", "dark") as "light" | "dark");
@@ -278,6 +288,7 @@ export default function App() {
   const [screenSleepSeconds, setScreenSleepSeconds] = useState(0);
   const [screenBlanked, setScreenBlanked] = useState(false);
   const [gameDetails, setGameDetails] = useState<GameDetails | null>(null);
+  const [gameDetailsEventId, setGameDetailsEventId] = useState<string | null>(null);
   const [selectedMatch, setSelectedMatch] = useState<TodaysGame | null>(null);
   const [matchDetails, setMatchDetails] = useState<GameDetails | null>(null);
   const [matchDetailsEventId, setMatchDetailsEventId] = useState<string | null>(null);
@@ -346,6 +357,10 @@ export default function App() {
   }, [nightSleepEnabled, nightSleepStart, nightSleepEnd]);
 
   useEffect(() => {
+    try { localStorage.setItem("footypal.favorites", JSON.stringify(favoriteTeams)); } catch { /* Keep favorites for this session if storage is unavailable. */ }
+  }, [favoriteTeams]);
+
+  useEffect(() => {
     const device = window.FootyPalDevice;
     if (typeof device?.getBrightness === "function") setBrightness(device.getBrightness());
     if (typeof device?.getVolume === "function") setVolume(device.getVolume());
@@ -402,6 +417,31 @@ export default function App() {
   const draftLeague = leagues.find((item) => item.slug === draftLeagueSlug);
   const logo = team?.logos?.find((item) => item.rel?.includes("default"))?.href ?? team?.logos?.[0]?.href;
   const leagueName = leagues.find((league) => league.slug === leagueSlug)?.name ?? "Football";
+  const currentTeamIsFavorite = favoriteTeams.some((item) => item.id === teamId && item.leagueSlug === leagueSlug);
+  const visibleFavoriteTeams = favoriteTeams.filter((item) => item.id !== teamId || item.leagueSlug !== leagueSlug);
+  const toggleCurrentFavorite = () => {
+    if (!team) return;
+    if (currentTeamIsFavorite) {
+      setFavoriteTeams((items) => items.filter((item) => item.id !== teamId || item.leagueSlug !== leagueSlug));
+      return;
+    }
+    setFavoriteTeams((items) => items.length >= 4 || items.some((item) => item.id === team.id && item.leagueSlug === leagueSlug)
+      ? items
+      : [...items, { id: team.id, name: team.name, leagueSlug, logo: logo ?? null }]);
+  };
+  const selectFavoriteTeam = (favoriteTeam: FavoriteTeam) => {
+    localStorage.setItem("footypal.team", favoriteTeam.id);
+    localStorage.setItem("footypal.league", favoriteTeam.leagueSlug);
+    setLeagueSlug(favoriteTeam.leagueSlug);
+    setDraftLeagueSlug(favoriteTeam.leagueSlug);
+    setDraftTeamId(favoriteTeam.id);
+    if (favoriteTeam.id !== teamId || favoriteTeam.leagueSlug !== leagueSlug) {
+      hasLoadedTeam.current = false;
+      setTeamId(favoriteTeam.id);
+      setTeam(null);
+      setError("");
+    }
+  };
   useLayoutEffect(() => {
     const wrap = standingsWrapRef.current;
     const selectedRow = wrap?.querySelector<HTMLElement>("[data-selected-team='true']");
@@ -444,17 +484,24 @@ export default function App() {
     const eventId = selectedGame?.fixture.eventId;
     if (!selectedGame || !eventId) {
       setGameDetails(null);
+      setGameDetailsEventId(null);
       return;
     }
     setGameDetails(null);
+    setGameDetailsEventId(null);
     const controller = new AbortController();
     const refreshGame = () => {
       api<GameDetails>(`/api/game/${encodeURIComponent(eventId)}`, controller.signal)
-        .then(setGameDetails)
+        .then((details) => {
+          if (!controller.signal.aborted) {
+            setGameDetails(details);
+            setGameDetailsEventId(eventId);
+          }
+        })
         .catch(() => { /* Keep the selected game visible if details are temporarily unavailable. */ });
     };
     refreshGame();
-    const interval = selectedGame.status === "LIVE" ? window.setInterval(refreshGame, 60_000) : undefined;
+    const interval = selectedGame.status === "LIVE" ? window.setInterval(refreshGame, 30_000) : undefined;
     return () => { controller.abort(); if (interval) window.clearInterval(interval); };
   }, [todayGame?.fixture.eventId, todayGame?.status]);
 
@@ -466,24 +513,41 @@ export default function App() {
       setMatchDetailsError("");
       return;
     }
+    if (todayGame?.fixture.eventId === selectedMatch.fixture.eventId) {
+      setMatchDetails(null);
+      setMatchDetailsEventId(null);
+      setLoadingMatchDetails(false);
+      setMatchDetailsError("");
+      return;
+    }
     const controller = new AbortController();
     setMatchDetails(null);
     setMatchDetailsEventId(null);
     setLoadingMatchDetails(true);
     setMatchDetailsError("");
-    api<GameDetails>(`/api/game/${encodeURIComponent(selectedMatch.fixture.eventId)}`, controller.signal)
-      .then((details) => {
-        if (!controller.signal.aborted) {
-          setMatchDetails(details);
-          setMatchDetailsEventId(selectedMatch.fixture.eventId);
-        }
-      })
-      .catch((err: unknown) => {
-        if (!controller.signal.aborted) setMatchDetailsError(err instanceof Error ? err.message : "Could not load match details");
-      })
-      .finally(() => { if (!controller.signal.aborted) setLoadingMatchDetails(false); });
-    return () => controller.abort();
-  }, [selectedMatch?.fixture.eventId]);
+    let interval: number | undefined;
+    const refreshMatch = () => {
+      api<GameDetails>(`/api/game/${encodeURIComponent(selectedMatch.fixture.eventId)}`, controller.signal)
+        .then((details) => {
+          if (!controller.signal.aborted) {
+            setMatchDetails(details);
+            setMatchDetailsEventId(selectedMatch.fixture.eventId);
+            if (details.status.type === "FINISHED" && interval) {
+              window.clearInterval(interval);
+              interval = undefined;
+            }
+          }
+        })
+        .catch((err: unknown) => {
+          if (!controller.signal.aborted) setMatchDetailsError(err instanceof Error ? err.message : "Could not load match details");
+        })
+        .finally(() => { if (!controller.signal.aborted) setLoadingMatchDetails(false); });
+    };
+    refreshMatch();
+    const shouldPoll = selectedMatch.status === "LIVE" || (selectedMatch.status === "SCHEDULED" && isToday(selectedMatch.fixture.date));
+    if (shouldPoll) interval = window.setInterval(refreshMatch, 30_000);
+    return () => { controller.abort(); if (interval) window.clearInterval(interval); };
+  }, [selectedMatch?.fixture.eventId, todayGame?.fixture.eventId]);
 
   useEffect(() => {
     if (!selectedMatch) return;
@@ -514,10 +578,19 @@ export default function App() {
     }
     openMatchDetails({ fixture, status: "FINISHED" });
   };
+  const modalUsesTodayGameDetails = !!selectedMatch && todayGame?.fixture.eventId === selectedMatch.fixture.eventId;
+  const modalMatchDetails = selectedMatch
+    ? modalUsesTodayGameDetails
+      ? gameDetailsEventId === selectedMatch.fixture.eventId ? gameDetails : null
+      : matchDetailsEventId === selectedMatch.fixture.eventId ? matchDetails : null
+    : null;
+  const modalMatchLoading = selectedMatch
+    ? modalUsesTodayGameDetails
+      ? gameDetailsEventId !== selectedMatch.fixture.eventId
+      : loadingMatchDetails || (matchDetailsEventId !== selectedMatch.fixture.eventId && !matchDetailsError)
+    : false;
   const selectedMatchStatus = selectedMatch
-    ? matchDetailsEventId === selectedMatch.fixture.eventId
-      ? matchDetails?.status.type ?? selectedMatch.status
-      : selectedMatch.status
+    ? modalMatchDetails?.status.type ?? selectedMatch.status
     : undefined;
   const selectedMatchDate = selectedMatch?.fixture.date ?? null;
   const selectedMatchIsToday = isToday(selectedMatchDate);
@@ -526,7 +599,7 @@ export default function App() {
     ? selectedMatchStatus === "FINISHED"
       ? "FT"
       : selectedMatchStatus === "LIVE"
-        ? (matchDetailsEventId === selectedMatch?.fixture.eventId ? matchDetails?.status.clock : null) ?? "LIVE"
+        ? modalMatchDetails?.status.clock ?? "LIVE"
         : selectedMatchDate ? dateLabel(selectedMatchDate, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : "Time TBC"
     : dateLabel(selectedMatchDate, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 
@@ -546,6 +619,12 @@ export default function App() {
         </button> : <span>{leagueName}</span>}
       </div>
       <div className="topbar-actions">
+        {visibleFavoriteTeams.map((favoriteTeam) => <button type="button" className="favorite-chip" key={`${favoriteTeam.leagueSlug}-${favoriteTeam.id}`} aria-label={`Switch to ${favoriteTeam.name}`} title={favoriteTeam.name} onClick={() => selectFavoriteTeam(favoriteTeam)}>
+          <Badge src={favoriteTeam.logo} name={favoriteTeam.name} />
+        </button>)}
+        <button type="button" className={`favorite-star ${currentTeamIsFavorite ? "is-favorite" : ""}`} aria-label={!team ? "Choose a team before adding favourites" : currentTeamIsFavorite ? `Remove ${team.name} from favourites` : favoriteTeams.length >= 4 ? "Four favourite teams are already saved" : `Add ${team.name} to favourites`} aria-pressed={currentTeamIsFavorite} disabled={!team || (!currentTeamIsFavorite && favoriteTeams.length >= 4)} title={!team ? "Choose a team before adding favourites" : currentTeamIsFavorite ? "Remove from favourites" : favoriteTeams.length >= 4 ? "Remove a favourite before adding another" : "Add to favourites"} onClick={toggleCurrentFavorite}>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2.8 2.85 5.78 6.38.93-4.62 4.5 1.09 6.35L12 17.36l-5.7 3 1.09-6.35-4.62-4.5 6.38-.93L12 2.8Z" /></svg>
+        </button>
         <button className="icon-button" aria-label="Open settings" onClick={() => setSettingsOpen(true)}><UiIcon name="settings" size={23} /></button>
       </div>
     </header>
@@ -574,12 +653,11 @@ export default function App() {
             const crest = rowTeam?.logos?.find((item) => item.rel?.includes("default"))?.href ?? rowTeam?.logos?.[0]?.href;
             return <Fragment key={`${row.position}-${row.teamName}`}>{startsNewPositionType && <tr className="position-separator" aria-hidden="true"><td colSpan={8}><span /></td></tr>}<tr className={`${selected ? "selected-row" : ""} ${endsPositionType ? "position-group-end" : ""}`} data-selected-team={selected ? "true" : undefined}><td className="position-cell"><span>{String(row.position).padStart(2, "0")}</span></td><td className="club-cell"><span className="club-info">{crest ? <img src={crest} alt="" /> : <span className="mini-crest">{row.teamName.slice(0, 1)}</span>}<strong>{row.teamName}</strong></span></td><td className="stat-col">{row.gamesPlayed}</td><td className="stat-col">{row.won}</td><td className="stat-col">{row.drew}</td><td className="stat-col">{row.lost}</td><td className="wide-stat">{row.goalDifference > 0 ? `+${row.goalDifference}` : row.goalDifference}</td><td className="points-cell">{row.points}</td></tr></Fragment>;
           })}</tbody></table></div> : <div className="empty-state">Standings aren’t available right now.</div>}
-          <div className="table-footer"><span>Updated just now</span></div>
         </div>
 
         <div className="fixtures-column">
 
-          {todayGame && <TodayGamePanel game={todayGame} details={gameDetails} highlightedId={team.id} onExpand={() => openMatchDetails(todayGame)} />}
+          {todayGame && <TodayGamePanel game={todayGame} details={gameDetailsEventId === todayGame.fixture.eventId ? gameDetails : null} highlightedId={team.id} onExpand={() => openMatchDetails(todayGame)} />}
           <FixturePanel fixtures={timelineFixtures} highlightedId={team.id} teamId={team.id} emptyMessage="No fixtures to show." targetEventId={targetFixture?.eventId} returnLabel={returnLabel} expandEventId={todayGame?.fixture.eventId} onFixtureSelect={openFixtureDetails} />
         </div>
       </section>
@@ -637,8 +715,8 @@ export default function App() {
     </section></div>}
     {selectedMatch && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedMatch(null); }}><section className="modal game-details-modal" role="dialog" aria-modal="true" aria-label={selectedMatchTitle}>
       <div className="modal-topline"><div className="eyebrow">{selectedMatchTitle}</div><button className="modal-close" onClick={() => setSelectedMatch(null)} aria-label="Close"><UiIcon name="close" size={20} /></button></div>
-      {matchDetailsError && <div className="error-banner" role="alert"><span>{matchDetailsError}</span></div>}
-      <TodayGamePanel game={selectedMatch} details={matchDetailsEventId === selectedMatch.fixture.eventId ? matchDetails : null} highlightedId={team?.id ?? ""} loading={loadingMatchDetails || (matchDetailsEventId !== selectedMatch.fixture.eventId && !matchDetailsError)} showHeading={false} scoreTimeLabel={selectedMatchTime} scoreTimeIsLive={selectedMatchIsToday && selectedMatchStatus === "LIVE"} />
+      {!modalUsesTodayGameDetails && matchDetailsError && <div className="error-banner" role="alert"><span>{matchDetailsError}</span></div>}
+      <TodayGamePanel game={selectedMatch} details={modalMatchDetails} highlightedId={team?.id ?? ""} loading={modalMatchLoading} showHeading={false} scoreTimeLabel={selectedMatchTime} scoreTimeIsLive={selectedMatchIsToday && selectedMatchStatus === "LIVE"} />
     </section></div>}
     {screenBlanked && <button type="button" className="screen-sleep-overlay" aria-label="Tap to wake display" />}
   </main>;

@@ -39,7 +39,7 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
 .topbar-club-copy strong { overflow: hidden; color: var(--text); font-size: 15px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .topbar-club-copy small { color: var(--muted); font-size: 11px; }
 .context-dot { color: var(--team-accent); font-size: 18px; }
-.topbar-actions { display: flex; align-items: center; gap: 11px; margin-left: auto; }
+.topbar-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .team-switch, .icon-button { display: flex; align-items: center; justify-content: center; border: 1px solid var(--line); color: var(--text); background: var(--surface); }
 .team-switch { gap: 9px; min-height: 38px; padding: 4px 11px 4px 6px; border-radius: 22px; font-size: 12px; font-weight: 600; }
 .team-switch .team-badge { width: 26px; height: 26px; border: 0; }
@@ -47,6 +47,14 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
 .icon-button { width: 38px; height: 38px; border-radius: 50%; transition: border-color .15s, color .15s; }
 .icon-button:hover { color: var(--team-accent); border-color: var(--team-accent); }
 .icon-button svg { display: block; }
+.favorite-star, .favorite-chip { display: flex; width: 42px; height: 42px; flex: none; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 10px; padding: 4px; color: var(--muted); background: var(--surface); transition: border-color .15s, color .15s, background .15s; }
+.favorite-star svg { width: 25px; height: 25px; fill: transparent; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.favorite-star.is-favorite { color: #e5b93f; border-color: rgba(229, 185, 63, .55); background: rgba(229, 185, 63, .1); }
+.favorite-star.is-favorite svg { fill: currentColor; }
+.favorite-star:hover:not(:disabled), .favorite-chip:hover { border-color: var(--team-accent-border); color: var(--team-accent); }
+.favorite-star.is-favorite:hover { color: #e5b93f; border-color: #e5b93f; }
+.favorite-star:disabled { cursor: default; opacity: .42; }
+.favorite-chip .team-badge { width: 30px; height: 30px; }
 .hero { position: relative; display: flex; align-items: center; justify-content: space-between; min-height: 188px; padding: 30px 34px; margin-top: 22px; overflow: hidden; border: 1px solid var(--team-accent-border); border-radius: 15px; background: radial-gradient(ellipse at 77% 20%, var(--team-accent-glow), transparent 50%), var(--surface); }
 .hero-team, .hero-summary, .live-content { position: relative; z-index: 1; }
 .hero-team { display: flex; align-items: center; gap: 22px; min-width: 40%; }
@@ -110,7 +118,6 @@ tbody tr.position-separator td span { display: block; border-top: 2px dashed var
 .club-cell strong { overflow: hidden; min-width: 0; color: var(--text); font: 500 10px 'DM Sans', sans-serif; text-overflow: ellipsis; }
 .selected-row .club-cell strong, .selected-row .points-cell { color: var(--team-accent); font-weight: 700; }
 .points-cell { font-weight: 600; color: var(--text); }
-.table-footer { display: flex; justify-content: flex-end; border-top: 1px solid var(--line); padding-top: 11px; margin-top: 8px; color: var(--faint); font: 400 8px 'DM Mono', monospace; letter-spacing: .04em; }
 .fixtures-column { display: flex; min-height: 400px; flex-direction: column; gap: 13px; }
 .today-game-panel { display: flex; min-height: 300px; flex: 0 0 auto; flex-direction: column; gap: 8px; padding: 12px 15px; }
 .expandable-game-panel { cursor: pointer; transition: border-color .15s, box-shadow .15s; }
@@ -140,6 +147,8 @@ tbody tr.position-separator td span { display: block; border-top: 2px dashed var
 .today-game-score { display: flex; height: 28px; align-items: center; justify-content: center; gap: 7px; margin-top: 0; color: var(--text); font: 700 22px/28px 'DM Mono', monospace; }
 .today-game-score i { color: var(--faint); font-style: normal; font-weight: 400; }
 .today-game-score.scheduled { color: var(--faint); font: 500 11px 'DM Mono', monospace; }
+.today-score-center.has-score-time { position: relative; padding-top: 25px; }
+.today-score-center.has-score-time > .today-game-time { position: absolute; top: 0; left: 50%; white-space: nowrap; transform: translateX(-50%); }
 .today-game-details { min-height: auto; flex: none; overflow: visible; }
 .game-stats { min-width: 0; }
 .game-stats h3 { margin: 0 0 7px; color: var(--faint); font: 500 9px 'DM Mono', monospace; letter-spacing: .08em; text-transform: uppercase; }
@@ -227,7 +236,6 @@ thead th { font-size: 10px; }
 tbody tr { height: 42px; font-size: 14px; }
 .club-cell img, .mini-crest { width: 21px; height: 21px; }
 .club-cell strong { font-size: 14px; }
-.table-footer { font-size: 10px; }
 .fixture-date { font-size: 13px; }
 .fixture-side { font-size: 14px; }
 .fixture-side b { font-size: 16px; }
@@ -304,8 +312,10 @@ tbody tr { height: 42px; font-size: 14px; }
 .game-details-modal .modal-topline { margin-bottom: 16px; }
 .game-details-modal .eyebrow { font-size: 22px; }
 .today-score-center { display: flex; min-width: 72px; flex-direction: column; align-items: center; gap: 4px; }
+.game-details-modal .today-score-center { width: 92px; }
 .game-details-modal .today-score-center .today-game-time { font-size: 18px; }
 .game-details-modal .today-game-panel { min-height: 0; flex: none; overflow: visible; border: 0; padding: 0; background: transparent; box-shadow: none; }
+.game-details-modal .today-scoreboard { column-gap: 16px; }
 .game-details-modal .today-game-team { font-size: 26px; }
 .game-details-modal .today-team-identity { min-height: 48px; gap: 10px; }
 .game-details-modal .today-team-identity span { line-height: 48px; }
@@ -321,3 +331,10 @@ tbody tr { height: 42px; font-size: 14px; }
 .game-details-modal .game-stat-labels span { padding: 0 12px; }
 .game-details-modal .game-detail-empty { font-size: 20px; }
 .game-details-modal .error-banner { font-size: 24px; }
+@media (max-width: 450px) {
+  .topbar-actions { gap: 3px; }
+  .favorite-star, .favorite-chip { width: 32px; height: 34px; padding: 2px; }
+  .favorite-star svg { width: 21px; height: 21px; }
+  .favorite-chip .team-badge { width: 25px; height: 25px; }
+  .topbar-actions .icon-button { width: 38px; height: 38px; }
+}
