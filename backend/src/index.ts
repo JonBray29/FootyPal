@@ -28,6 +28,32 @@ app.use((req, res, next) => {
 app.use(express.json());
 app.use("/health", healthRouter);
 
+const leagueTeamsCache = new Map<string, { teams: ITeam[]; expiresAt: number }>();
+const LEAGUE_TEAMS_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+
+async function getLeagueTeams(leagueSlug: string): Promise<ITeam[]> {
+    const cached = leagueTeamsCache.get(leagueSlug);
+    if (cached && cached.expiresAt > Date.now()) return cached.teams;
+
+    const response = await fetch(
+        `https://site.api.espn.com/apis/site/v2/sports/soccer/${encodeURIComponent(leagueSlug)}/teams`,
+        { signal: AbortSignal.timeout(10000) }
+    );
+    if (!response.ok) throw new Error("ESPN team list failed");
+    const data: IEspnTeamResponse = await response.json();
+    const teams: ITeam[] = data.sports?.flatMap(
+        (sport) => sport.leagues?.flatMap(
+            (entry) => entry.teams?.flatMap(({ team }) =>
+                team?.id && team.name
+                    ? [{ id: team.id, name: team.name, abbreviation: team.abbreviation ?? null, logos: team.logos ?? [] }]
+                    : []
+            ) ?? []
+        ) ?? []
+    ) ?? [];
+    leagueTeamsCache.set(leagueSlug, { teams, expiresAt: Date.now() + LEAGUE_TEAMS_CACHE_TTL_MS });
+    return teams;
+}
+
 /**
  * GET /api/leagues
  * Lists the domestic leagues supported by FootyPal.
@@ -52,38 +78,7 @@ app.get("/api/leagues/:slug/teams", async (req, res) => {
     }
 
     try {
-        const response = await fetch(
-            `https://site.api.espn.com/apis/site/v2/sports/soccer/${encodeURIComponent(league.slug)}/teams`
-        );
-
-        if (!response.ok) {
-            res.status(502).json({ error: "Unable to retrieve teams from ESPN" });
-            return;
-        }
-
-        const data: IEspnTeamResponse = await response.json();
-
-        const teams: ITeam[] =
-            data.sports?.flatMap(
-                (sport) =>
-                    sport.leagues?.flatMap(
-                        (entry) =>
-                            entry.teams?.flatMap(({ team }) =>
-                                team?.id && team.name
-                                    ? [
-                                          {
-                                              id: team.id,
-                                              name: team.name,
-                                              abbreviation: team.abbreviation ?? null,
-                                              logos: team.logos ?? []
-                                          }
-                                      ]
-                                    : []
-                            ) ?? []
-                    ) ?? []
-            ) ?? [];
-
-        res.json(teams);
+        res.json(await getLeagueTeams(league.slug));
     } catch {
         res.status(502).json({ error: "Unable to retrieve teams from ESPN" });
     }
@@ -92,6 +87,8 @@ app.get("/api/leagues/:slug/teams", async (req, res) => {
 /**
  * GET /api/teams/:teamId
  * Fetches a team's profile, branding, venue, league standings and season fixtures.
+ * The league is resolved from the supported league rosters if ESPN's team profile
+ * default league is stale.
  * Returns compact home/away team objects in previousMatches, upcomingFixtures and
  * liveGame. Completed/live matches include available scores; liveGame is otherwise null.
  * Previous matches are newest first; upcoming fixtures are soonest first.
@@ -119,8 +116,26 @@ app.get("/api/teams/:teamId", async (req, res) => {
         if (!team?.id) throw new Error("Invalid ESPN team details");
         const color = (value?: string) => (value && /^[0-9a-f]{6}$/i.test(value) ? `#${value}` : null);
 
-        const leagueSlug = team.defaultLeague?.$ref?.match(/\/leagues\/([^/?]+)/)?.[1];
-        const liveGame = await getLiveGame(team.id);
+        const defaultLeagueSlug = team.defaultLeague?.$ref?.match(/\/leagues\/([^/?]+)/)?.[1];
+        let leagueSlug = defaultLeagueSlug ?? "";
+        let leagueTeamOptions: ITeam[] = leagueSlug ? await getLeagueTeams(leagueSlug) : [];
+        if (!leagueTeamOptions.some(({ id }) => id === team.id)) {
+            const otherLeagues = await Promise.all(SUPPORTED_LEAGUES
+                .filter(({ slug }) => slug !== defaultLeagueSlug)
+                .map(async (league) => {
+                    try {
+                        return { slug: league.slug, teams: await getLeagueTeams(league.slug) };
+                    } catch {
+                        return null;
+                    }
+                }));
+            const actualLeague = otherLeagues.find((candidate) => candidate?.teams.some(({ id }) => id === team.id));
+            if (actualLeague) {
+                leagueSlug = actualLeague.slug;
+                leagueTeamOptions = actualLeague.teams;
+            }
+        }
+        const liveGame = leagueSlug ? await getLiveGame(team.id, leagueSlug) : null;
         let standings: ILeagueStanding[] = [];
         if (leagueSlug) {
             const standingsResponse = await fetch(
@@ -172,29 +187,14 @@ app.get("/api/teams/:teamId", async (req, res) => {
         const previousMatches: ITeamFixture[] = [];
         const upcomingFixtures: ITeamFixture[] = [];
         if (leagueSlug) {
-            const teamsResponse = await fetch(
-                `https://site.api.espn.com/apis/site/v2/sports/soccer/${encodeURIComponent(leagueSlug)}/teams`,
-                { signal: AbortSignal.timeout(10000) }
-            );
-            if (!teamsResponse.ok) throw new Error("ESPN team list failed");
-            const teamsData: IEspnTeamResponse = await teamsResponse.json();
             const teamsById = new Map<string, ITeamSimple>();
-            for (const sport of teamsData.sports ?? []) {
-                for (const league of sport.leagues ?? []) {
-                    for (const entry of league.teams ?? []) {
-                        const item = entry.team;
-                        if (item?.id && item.name)
-                            teamsById.set(item.id, {
-                                id: item.id,
-                                name: item.name,
-                                abbreviation: item.abbreviation ?? null,
-                                logo:
-                                    item.logos?.find((logo) => logo.rel?.includes("default"))?.href ??
-                                    item.logos?.[0]?.href ??
-                                    null
-                            });
-                    }
-                }
+            for (const item of leagueTeamOptions) {
+                teamsById.set(item.id, {
+                    id: item.id,
+                    name: item.name,
+                    abbreviation: item.abbreviation,
+                    logo: item.logos.find((logo) => logo.rel?.includes("default"))?.href ?? item.logos[0]?.href ?? null
+                });
             }
 
             const scheduleResponse = await fetch(
@@ -220,33 +220,38 @@ app.get("/api/teams/:teamId", async (req, res) => {
                     fixture.homeTeamGoals = typeof home.score === "object" ? home.score.value : Number(home.score ?? 0);
                     fixture.awayTeamGoals = typeof away.score === "object" ? away.score.value : Number(away.score ?? 0);
                     previousMatches.push(fixture);
+                } else if (event.date && new Date(event.date).getTime() > Date.now()) {
+                    upcomingFixtures.push(fixture);
                 }
             }
 
-            const eventRefsResponse = await fetch(`${team.events?.$ref}&limit=100`, {
-                signal: AbortSignal.timeout(10000)
-            });
-            if (!eventRefsResponse.ok) throw new Error("ESPN team event list failed");
+            const season = new Date().getUTCFullYear();
+            const eventsUrl = `http://sports.core.api.espn.com/v2/sports/soccer/leagues/${encodeURIComponent(leagueSlug)}/seasons/${season}/teams/${encodeURIComponent(team.id)}/events?lang=en&region=us&limit=100`;
+            const eventRefsResponse = await fetch(eventsUrl, { signal: AbortSignal.timeout(10000) });
+            if (!eventRefsResponse.ok) throw new Error("ESPN league events failed");
             const eventRefs: IEspnTeamEventsResponse = await eventRefsResponse.json();
+            const existingFixtureIds = new Set(upcomingFixtures.map(({ eventId }) => eventId));
             const refs = eventRefs.items ?? [];
             for (let index = 0; index < refs.length; index += 8) {
                 const events = await Promise.all(
                     refs.slice(index, index + 8).map(async ({ $ref }) => {
                         const response = await fetch($ref, { signal: AbortSignal.timeout(10000) });
-                        if (!response.ok) throw new Error("ESPN event fetch failed");
+                        if (!response.ok) throw new Error("ESPN league event fetch failed");
                         return (await response.json()) as IEspnCoreEventResponse;
                     })
                 );
                 for (const event of events) {
-                    if (event.id === liveGame?.eventId) continue;
+                    if (event.id === liveGame?.eventId || existingFixtureIds.has(event.id)) continue;
                     if (!event.date || new Date(event.date).getTime() <= Date.now()) continue;
                     const competitors = event.competitions?.[0]?.competitors ?? [];
                     const home = competitors.find((competitor) => competitor.homeAway === "home");
                     const away = competitors.find((competitor) => competitor.homeAway === "away");
                     const homeTeam = home?.id ? teamsById.get(home.id) : undefined;
                     const awayTeam = away?.id ? teamsById.get(away.id) : undefined;
-                    if (homeTeam && awayTeam)
+                    if (homeTeam && awayTeam) {
                         upcomingFixtures.push({ eventId: event.id, date: event.date, homeTeam, awayTeam });
+                        existingFixtureIds.add(event.id);
+                    }
                 }
             }
         }
@@ -270,9 +275,9 @@ app.get("/api/teams/:teamId", async (req, res) => {
                       country: team.venue.address?.country ?? null
                   }
                 : null,
-            leagueRef: team.defaultLeague?.$ref ?? null,
-            recordRef: team.record?.$ref ?? null,
-            eventsRef: team.events?.$ref ?? null,
+            leagueRef: SUPPORTED_LEAGUES.find(({ slug }) => slug === leagueSlug)?.ref ?? team.defaultLeague?.$ref ?? null,
+            recordRef: team.record?.$ref?.replace(`/leagues/${defaultLeagueSlug}/`, `/leagues/${leagueSlug}/`) ?? null,
+            eventsRef: team.events?.$ref?.replace(`/leagues/${defaultLeagueSlug}/`, `/leagues/${leagueSlug}/`) ?? null,
             standings,
             liveGame,
             previousMatches: previousMatches.sort((a, b) => (b.date ?? "").localeCompare(a.date ?? "")),

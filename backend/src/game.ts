@@ -105,12 +105,12 @@ export async function getGame(eventId: string): Promise<IGame> {
   return mapGame(data);
 }
 
-export async function getLiveGame(teamId: string): Promise<ITeamFixture | null> {
+export async function getLiveGame(teamId: string, leagueSlug: string): Promise<ITeamFixture | null> {
   // Include yesterday to cover fixtures that continue past midnight UTC.
   const dates = [new Date(), new Date(Date.now() - 86400000)].map((date) => date.toISOString().slice(0, 10).replace(/-/g, ''));
   for (const date of dates) {
     const response = await fetch(
-      `https://site.api.espn.com/apis/site/v2/sports/soccer/all/scoreboard?dates=${date}&limit=1000`,
+      `https://site.api.espn.com/apis/site/v2/sports/soccer/${encodeURIComponent(leagueSlug)}/scoreboard?dates=${date}&limit=1000`,
       { signal: AbortSignal.timeout(10000) },
     );
     if (!response.ok) throw new Error('ESPN live scoreboard failed');
