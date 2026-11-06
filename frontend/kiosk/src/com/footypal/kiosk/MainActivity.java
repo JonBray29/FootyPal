@@ -61,6 +61,10 @@ public class MainActivity extends Activity {
   static final String DEFAULT_URL = "http://127.0.0.1:8765/";
   static final String PREFS = "kiosk";
   static final String PREF_URL = "url";
+  static final String PREF_SCREEN_SLEEP_SECONDS = "screen_sleep_seconds";
+  static final String PREF_LEGACY_SCREEN_SLEEP_MINUTES = "screen_sleep_minutes";
+  static final String PREF_PREVIOUS_SCREEN_TIMEOUT = "previous_screen_timeout";
+  static final int[] SCREEN_SLEEP_OPTIONS_SECONDS = {30, 60, 120, 300, 600, 900};
   static final long CONTROL_TAP_WINDOW_MS = 1200;
   static final long CONTROL_TAP_MAX_DURATION_MS = 500;
   static final int CONTROL_TAP_COUNT = 10;
@@ -140,8 +144,8 @@ public class MainActivity extends Activity {
     applyDebugFlag(getIntent());
     applyHomeFlag(getIntent());
     keepNavigationEnabled();
-    getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
-        | WindowManager.LayoutParams.FLAG_FULLSCREEN);
+    getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN
+        | WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
     web = new WebView(this);
     WebSettings s = web.getSettings();
@@ -260,6 +264,7 @@ public class MainActivity extends Activity {
     root.addView(buildOffline());
     setContentView(root);
     applySavedBrightness();
+    restorePreviousScreenTimeout();
 
     String url = urlFrom(getIntent());
     String initialUrl = url != null ? url : savedUrl();
@@ -273,6 +278,7 @@ public class MainActivity extends Activity {
   @Override
   protected void onResume() {
     super.onResume();
+    restorePreviousScreenTimeout();
     NavigationService.setDashboardVisible(true);
   }
 
@@ -423,6 +429,57 @@ public class MainActivity extends Activity {
       int target = Math.round(maximum * value / 100f);
       audio.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0);
     }
+
+    @JavascriptInterface
+    public int getScreenSleepSeconds() {
+      android.content.SharedPreferences preferences = getSharedPreferences(PREFS, MODE_PRIVATE);
+      if (preferences.contains(PREF_SCREEN_SLEEP_SECONDS)) return preferences.getInt(PREF_SCREEN_SLEEP_SECONDS, 0);
+      int legacyMinutes = preferences.getInt(PREF_LEGACY_SCREEN_SLEEP_MINUTES, 0);
+      return legacyMinutes * 60;
+    }
+
+    @JavascriptInterface
+    public boolean setScreenSleepSeconds(int seconds) {
+      final int value = supportedSleepSeconds(seconds);
+      if (value < 0) return false;
+      getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+          .putInt(PREF_SCREEN_SLEEP_SECONDS, value)
+          .remove(PREF_LEGACY_SCREEN_SLEEP_MINUTES)
+          .apply();
+      return true;
+    }
+
+    @JavascriptInterface
+    public void setScreenBlanked(boolean blanked) {
+      runOnUiThread(() -> {
+        if (blanked) {
+          WindowManager.LayoutParams attributes = getWindow().getAttributes();
+          attributes.screenBrightness = 0f;
+          getWindow().setAttributes(attributes);
+        } else {
+          applySavedBrightness();
+        }
+      });
+    }
+  }
+
+  private int supportedSleepSeconds(int seconds) {
+    if (seconds == 0) return 0;
+    for (int option : SCREEN_SLEEP_OPTIONS_SECONDS) if (seconds == option) return option;
+    return -1;
+  }
+
+  private void restorePreviousScreenTimeout() {
+    android.content.SharedPreferences preferences = getSharedPreferences(PREFS, MODE_PRIVATE);
+    if (!preferences.contains(PREF_PREVIOUS_SCREEN_TIMEOUT) || !Settings.System.canWrite(this)) return;
+    int previous = preferences.getInt(PREF_PREVIOUS_SCREEN_TIMEOUT, 30_000);
+    try {
+      Settings.System.putInt(getContentResolver(), Settings.System.SCREEN_OFF_TIMEOUT, previous);
+      preferences.edit().remove(PREF_PREVIOUS_SCREEN_TIMEOUT).apply();
+    } catch (SecurityException e) {
+      Log.w(TAG, "Could not restore the previous screen timeout", e);
+    }
+    getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
   }
 
   private void applySavedBrightness() {

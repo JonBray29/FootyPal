@@ -14,6 +14,11 @@ type GameDetails = {
 };
 type TodaysGame = { fixture: Fixture; status: "LIVE" | "SCHEDULED" | "FINISHED" };
 type Standing = { position: number; positionType: string; teamName: string; gamesPlayed: number; won: number; drew: number; lost: number; goalsFor: number; goalsAgainst: number; goalDifference: number; points: number };
+const HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) => ({ value: String(hour).padStart(2, "0"), label: `${String(hour).padStart(2, "0")}:00` }));
+const savedHour = (key: string, fallback: string) => {
+  const value = getSaved(key, fallback);
+  return HOUR_OPTIONS.some((option) => option.value === value) ? value : fallback;
+};
 type Team = {
   id: string; name: string; shortName: string | null; abbreviation: string | null; nickname: string | null;
   logos: { href: string; rel?: string[] }[]; colors: { primary: string | null; secondary: string | null };
@@ -28,6 +33,9 @@ declare global {
       setBrightness: (percent: number) => void;
       getVolume: () => number;
       setVolume: (percent: number) => void;
+      getScreenSleepSeconds: () => number;
+      setScreenSleepSeconds: (seconds: number) => boolean;
+      setScreenBlanked: (blanked: boolean) => void;
     };
   }
 }
@@ -56,6 +64,12 @@ function isToday(value: string | null, today = new Date()) {
   return !!value && new Date(value).toDateString() === today.toDateString();
 }
 
+function isInDailyHourWindow(now: Date, startHour: number, endHour: number) {
+  if (startHour === endHour) return false;
+  const hour = now.getHours();
+  return startHour < endHour ? hour >= startHour && hour < endHour : hour >= startHour || hour < endHour;
+}
+
 function colorForMode(hex: string | null, mode: "light" | "dark", fallback: string) {
   if (!hex || !/^#[0-9a-f]{6}$/i.test(hex)) return fallback;
   const rgb = [1, 3, 5].map((index) => parseInt(hex.slice(index, index + 2), 16));
@@ -70,6 +84,23 @@ function colorForMode(hex: string | null, mode: "light" | "dark", fallback: stri
 function Badge({ src, name, className = "" }: { src?: string | null; name: string; className?: string }) {
   return src ? <img className={`team-badge ${className}`} src={src} alt={`${name} crest`} /> :
     <span className={`team-badge badge-fallback ${className}`} aria-label={name}>{name.slice(0, 2).toUpperCase()}</span>;
+}
+
+function SettingsDropdown({ id, value, options, open, onToggle, onSelect }: {
+  id: string;
+  value: string;
+  options: { value: string; label: string }[];
+  open: boolean;
+  onToggle: () => void;
+  onSelect: (value: string) => void;
+}) {
+  const selected = options.find((option) => option.value === value);
+  return <div className="team-picker-field sleep-picker-field">
+    <button id={id} type="button" className={`team-picker-trigger ${open ? "open" : ""}`} role="combobox" aria-expanded={open} aria-controls={`${id}-options`} aria-haspopup="listbox" onClick={onToggle} onKeyDown={(event) => { if (event.key === "Escape") onSelect(value); }}>
+      <span>{selected?.label ?? value}</span><span className="chevron select-chevron" aria-hidden="true" />
+    </button>
+    {open && <div id={`${id}-options`} className="team-options-popover"><div className="team-option-list" role="listbox">{options.map((option) => <button type="button" role="option" aria-selected={value === option.value} className={`team-option ${value === option.value ? "chosen" : ""}`} key={option.value} onClick={() => onSelect(option.value)}><span>{option.label}</span>{value === option.value && <b>✓</b>}</button>)}</div></div>}
+  </div>;
 }
 
 type UiIconName = "settings" | "close" | "sun-low" | "sun-high" | "moon" | "volume-low" | "volume-high";
@@ -229,6 +260,11 @@ export default function App() {
   const [teamPicker, setTeamPicker] = useState(!getSaved("footypal.team", ""));
   const [leagueListOpen, setLeagueListOpen] = useState(false);
   const [teamListOpen, setTeamListOpen] = useState(false);
+  const [screenSleepListOpen, setScreenSleepListOpen] = useState(false);
+  const [nightSleepEnabled, setNightSleepEnabled] = useState(() => getSaved("footypal.sleep.schedule.enabled", "false") === "true");
+  const [nightSleepStart, setNightSleepStart] = useState(() => savedHour("footypal.sleep.schedule.start", "22"));
+  const [nightSleepEnd, setNightSleepEnd] = useState(() => savedHour("footypal.sleep.schedule.end", "07"));
+  const [nightHourListOpen, setNightHourListOpen] = useState<"start" | "end" | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [loadingLeagues, setLoadingLeagues] = useState(true);
   const [loadingTeams, setLoadingTeams] = useState(false);
@@ -236,10 +272,14 @@ export default function App() {
   const [error, setError] = useState("");
   const [brightness, setBrightness] = useState(75);
   const [volume, setVolume] = useState(45);
-  const [refreshCountdown, setRefreshCountdown] = useState(30);
+  const [screenSleepSeconds, setScreenSleepSeconds] = useState(0);
+  const [screenBlanked, setScreenBlanked] = useState(false);
   const [gameDetails, setGameDetails] = useState<GameDetails | null>(null);
   const hasLoadedTeam = useRef(false);
   const standingsWrapRef = useRef<HTMLDivElement>(null);
+  const lastScreenActivityRef = useRef(Date.now());
+  const screenBlankedRef = useRef(false);
+  const canControlSleep = typeof window.FootyPalDevice?.getScreenSleepSeconds === "function" && typeof window.FootyPalDevice?.setScreenSleepSeconds === "function" && typeof window.FootyPalDevice?.setScreenBlanked === "function";
 
   useEffect(() => {
     const controller = new AbortController();
@@ -287,22 +327,60 @@ export default function App() {
   }, [teamId, loadTeam]);
 
   useEffect(() => {
-    if (!teamId) return;
-    setRefreshCountdown(30);
-    const interval = window.setInterval(() => setRefreshCountdown((remaining) => remaining <= 1 ? 30 : remaining - 1), 1_000);
-    return () => window.clearInterval(interval);
-  }, [teamId]);
-
-  useEffect(() => {
     document.documentElement.dataset.mode = mode;
     localStorage.setItem("footypal.mode", mode);
   }, [mode]);
 
   useEffect(() => {
+    localStorage.setItem("footypal.sleep.schedule.enabled", String(nightSleepEnabled));
+    localStorage.setItem("footypal.sleep.schedule.start", nightSleepStart);
+    localStorage.setItem("footypal.sleep.schedule.end", nightSleepEnd);
+  }, [nightSleepEnabled, nightSleepStart, nightSleepEnd]);
+
+  useEffect(() => {
     const device = window.FootyPalDevice;
     if (typeof device?.getBrightness === "function") setBrightness(device.getBrightness());
     if (typeof device?.getVolume === "function") setVolume(device.getVolume());
+    if (typeof device?.getScreenSleepSeconds === "function") setScreenSleepSeconds(device.getScreenSleepSeconds());
   }, [settingsOpen]);
+
+  useEffect(() => {
+    const device = window.FootyPalDevice;
+    if (!canControlSleep || typeof device?.setScreenBlanked !== "function") {
+      device?.setScreenBlanked?.(false);
+      screenBlankedRef.current = false;
+      setScreenBlanked(false);
+      return;
+    }
+    const setBlanked = (blanked: boolean) => {
+      if (screenBlankedRef.current === blanked) return;
+      screenBlankedRef.current = blanked;
+      setScreenBlanked(blanked);
+      device.setScreenBlanked(blanked);
+    };
+    const evaluateSleep = () => {
+      const inNightWindow = nightSleepEnabled && isInDailyHourWindow(new Date(), Number(nightSleepStart), Number(nightSleepEnd));
+      const timeoutSeconds = inNightWindow ? 30 : screenSleepSeconds;
+      const shouldBlank = timeoutSeconds > 0 && Date.now() - lastScreenActivityRef.current >= timeoutSeconds * 1000;
+      setBlanked(shouldBlank);
+    };
+    const recordActivity = () => {
+      lastScreenActivityRef.current = Date.now();
+      setBlanked(false);
+    };
+    evaluateSleep();
+    const interval = window.setInterval(evaluateSleep, 1_000);
+    window.addEventListener("pointerdown", recordActivity);
+    window.addEventListener("keydown", recordActivity);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("pointerdown", recordActivity);
+      window.removeEventListener("keydown", recordActivity);
+      screenBlankedRef.current = false;
+      setScreenBlanked(false);
+      device.setScreenBlanked(false);
+    };
+  }, [screenSleepSeconds, nightSleepEnabled, nightSleepStart, nightSleepEnd, canControlSleep]);
 
   const favorite = useMemo(() => teams.find((candidate) => candidate.id === teamId), [teamId, teams]);
   const accent = colorForMode(team?.colors.primary ?? null, mode, mode === "dark" ? "#c7ef55" : "#52720f");
@@ -432,7 +510,6 @@ export default function App() {
           <FixturePanel fixtures={timelineFixtures} highlightedId={team.id} teamId={team.id} emptyMessage="No fixtures to show." targetEventId={targetFixture?.eventId} returnLabel={returnLabel} />
         </div>
       </section>
-      <footer className="page-footer"><span>Refetching data in {refreshCountdown} {refreshCountdown === 1 ? "second" : "seconds"}</span></footer>
     </>}
 
     {teamPicker && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && team) setTeamPicker(false); }}><section className="modal team-modal" role="dialog" aria-modal="true" aria-labelledby="team-modal-title">
@@ -468,13 +545,23 @@ export default function App() {
       <div className="modal-footnote"><span>✳</span> You can change your team any time.</div>
     </section></div>}
 
-    {settingsOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSettingsOpen(false); }}><section className="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
-      <div className="modal-topline"><div className="eyebrow">DISPLAY SETTINGS</div><button className="modal-close" onClick={() => setSettingsOpen(false)} aria-label="Close"><UiIcon name="close" size={20} /></button></div><h2 id="settings-title">Display settings</h2><p className="modal-copy">Brightness, volume and appearance.</p>
+    {settingsOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSettingsOpen(false); }}><section className="modal settings-modal" role="dialog" aria-modal="true" aria-label="Display settings">
+      <div className="modal-topline"><div className="eyebrow">DISPLAY SETTINGS</div><button className="modal-close" onClick={() => setSettingsOpen(false)} aria-label="Close"><UiIcon name="close" size={20} /></button></div>
       <div className="setting-group"><div className="setting-heading"><span>Appearance</span><span className="setting-value">{mode === "dark" ? "Dark" : "Light"}</span></div><div className="mode-switch"><button className={mode === "light" ? "active" : ""} onClick={() => setMode("light")}><UiIcon name="sun-high" size={16} /> Light</button><button className={mode === "dark" ? "active" : ""} onClick={() => setMode("dark")}><UiIcon name="moon" size={16} /> Dark</button></div></div>
       <div className="setting-group"><div className="setting-heading"><label htmlFor="brightness">Screen brightness</label><span className="setting-value">{brightness}%</span></div><div className="range-row"><UiIcon name="sun-low" size={16} /><input id="brightness" type="range" min="10" max="100" value={brightness} disabled={!canControlBrightness} style={{ "--range-progress": `${((brightness - 10) / 90) * 100}%` } as React.CSSProperties} onChange={(event) => { const value = Number(event.target.value); setBrightness(value); if (canControlBrightness) window.FootyPalDevice?.setBrightness(value); }} /><UiIcon name="sun-high" size={20} /></div></div>
       <div className="setting-group"><div className="setting-heading"><label htmlFor="volume">Media volume</label><span className="setting-value">{volume}%</span></div><div className="range-row"><UiIcon name="volume-low" size={18} /><input id="volume" type="range" min="0" max="100" value={volume} disabled={!canControlVolume} style={{ "--range-progress": `${volume}%` } as React.CSSProperties} onChange={(event) => { const value = Number(event.target.value); setVolume(value); if (canControlVolume) window.FootyPalDevice?.setVolume(value); }} /><UiIcon name="volume-high" size={20} /></div></div>
+      <div className="setting-group"><div className="setting-heading"><span>Screen sleep</span><span className="setting-value">{screenSleepSeconds === 0 ? "Never" : screenSleepSeconds < 60 ? `${screenSleepSeconds} sec` : `${screenSleepSeconds / 60} min`}</span></div><div className="team-picker-field sleep-picker-field">
+        <button id="screen-sleep" type="button" className={`team-picker-trigger ${screenSleepListOpen ? "open" : ""}`} role="combobox" aria-expanded={screenSleepListOpen} aria-controls="screen-sleep-options" aria-haspopup="listbox" disabled={!canControlSleep} onClick={() => { setNightHourListOpen(null); setScreenSleepListOpen((open) => !open); }}>
+          <span>{screenSleepSeconds === 0 ? "Never" : screenSleepSeconds < 60 ? `After ${screenSleepSeconds} seconds` : `After ${screenSleepSeconds / 60} minute${screenSleepSeconds === 60 ? "" : "s"}`}</span><span className="chevron select-chevron" aria-hidden="true" />
+        </button>
+        {screenSleepListOpen && <div id="screen-sleep-options" className="team-options-popover"><div className="team-option-list" role="listbox">{[{ value: 0, label: "Never" }, { value: 30, label: "After 30 seconds" }, { value: 60, label: "After 1 minute" }, { value: 120, label: "After 2 minutes" }, { value: 300, label: "After 5 minutes" }, { value: 600, label: "After 10 minutes" }, { value: 900, label: "After 15 minutes" }].map((option) => <button type="button" role="option" aria-selected={screenSleepSeconds === option.value} className={`team-option ${screenSleepSeconds === option.value ? "chosen" : ""}`} key={option.value} onClick={() => { setScreenSleepSeconds(option.value); setScreenSleepListOpen(false); setNightHourListOpen(null); window.FootyPalDevice?.setScreenSleepSeconds(option.value); }}><span>{option.label}</span>{screenSleepSeconds === option.value && <b>✓</b>}</button>)}</div></div>}
+      </div></div>
+      <div className="setting-group"><div className="setting-heading"><span>Night sleep schedule</span><button type="button" className={`sleep-schedule-toggle ${nightSleepEnabled ? "active" : ""}`} aria-pressed={nightSleepEnabled} onClick={() => { setNightHourListOpen(null); setScreenSleepListOpen(false); setNightSleepEnabled((enabled) => !enabled); }}>{nightSleepEnabled ? "On" : "Off"}</button></div>
+        {nightSleepEnabled && <><div className="sleep-hour-options"><div className="sleep-hour-field"><span>From</span><SettingsDropdown id="night-sleep-start" value={nightSleepStart} options={HOUR_OPTIONS} open={nightHourListOpen === "start"} onToggle={() => { setScreenSleepListOpen(false); setNightHourListOpen((open) => open === "start" ? null : "start"); }} onSelect={(value) => { setNightSleepStart(value); setNightHourListOpen(null); }} /></div><div className="sleep-hour-field"><span>Until</span><SettingsDropdown id="night-sleep-end" value={nightSleepEnd} options={HOUR_OPTIONS} open={nightHourListOpen === "end"} onToggle={() => { setScreenSleepListOpen(false); setNightHourListOpen((open) => open === "end" ? null : "end"); }} onSelect={(value) => { setNightSleepEnd(value); setNightHourListOpen(null); }} /></div></div><p className="settings-device-note">During this daily window, the screen blanks after 30 seconds without a tap, even if Screen sleep is set to Never.</p></>}
+      </div>
       <p className="settings-device-note">{canControlBrightness && canControlVolume ? "Brightness and volume control this tablet." : "Device controls are unavailable in this kiosk build."}</p>
-      <button className="primary-button settings-done" onClick={() => setSettingsOpen(false)}>All set <span>✓</span></button>
+      <p className="settings-device-note">{!canControlSleep ? "Screen sleep is available in the Android frame app." : "After inactivity, the display goes black. Tap anywhere to wake it."}</p>
     </section></div>}
+    {screenBlanked && <button type="button" className="screen-sleep-overlay" aria-label="Tap to wake display" />}
   </main>;
 }
