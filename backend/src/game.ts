@@ -59,6 +59,10 @@ export function mapGame(data: IEspnGameSummaryResponse): IGame {
   const homeTeam = compactTeam(home?.team);
   const awayTeam = compactTeam(away?.team);
   const status = mapGameStatus(competition.status);
+  const espnStatusType = competition.status?.type;
+  const shortDetail = espnStatusType?.shortDetail?.trim() ?? '';
+  const isHalfTime = shortDetail.toUpperCase() === 'HT' ||
+    [espnStatusType?.name, espnStatusType?.description, shortDetail].some((value) => /half[\s-]?time/i.test(value ?? ''));
   const scoresAvailable = status === GameStatus.LIVE || status === GameStatus.FINISHED || status === GameStatus.SUSPENDED || status === GameStatus.ABANDONED;
   const venue = data.gameInfo?.venue;
   return {
@@ -67,7 +71,7 @@ export function mapGame(data: IEspnGameSummaryResponse): IGame {
     competition: { name: header.league?.name ?? null, slug: header.league?.slug ?? null, season: header.season?.name ?? null },
     status: {
       type: status, description: competition.status?.type?.description ?? null,
-      clock: competition.status?.displayClock ?? competition.status?.type?.shortDetail ?? null,
+      clock: isHalfTime ? 'HT' : competition.status?.displayClock ?? (shortDetail || null),
       period: competition.status?.period ?? null,
     },
     homeTeam, awayTeam,
