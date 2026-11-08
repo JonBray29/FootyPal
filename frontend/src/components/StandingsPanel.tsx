@@ -48,11 +48,8 @@ export function StandingsPanel({
                         <tbody>
                             {team.standings.map((row: Standing, index) => {
                                 const selected = row.teamName.toLowerCase() === team.name.toLowerCase();
-                                const startsNewPositionType =
-                                    index > 0 && row.positionType !== team.standings[index - 1].positionType;
-                                const endsPositionType =
-                                    index < team.standings.length - 1 &&
-                                    row.positionType !== team.standings[index + 1].positionType;
+                                const nextRow = team.standings[index + 1];
+                                const startsNewPositionType = !!nextRow && row.positionType !== nextRow.positionType;
                                 const rowTeam = teams.find(
                                     (item) => item.name.toLowerCase() === row.teamName.toLowerCase()
                                 );
@@ -61,15 +58,8 @@ export function StandingsPanel({
                                     rowTeam?.logos?.[0]?.href;
                                 return (
                                     <Fragment key={`${row.position}-${row.teamName}`}>
-                                        {startsNewPositionType && (
-                                            <tr className="position-separator" aria-hidden="true">
-                                                <td colSpan={8}>
-                                                    <span />
-                                                </td>
-                                            </tr>
-                                        )}
                                         <tr
-                                            className={`${selected ? "selected-row" : ""} ${endsPositionType ? "position-group-end" : ""}`}
+                                            className={selected ? "selected-row" : ""}
                                             data-selected-team={selected ? "true" : undefined}
                                         >
                                             <td className="position-cell">
@@ -94,6 +84,20 @@ export function StandingsPanel({
                                             </td>
                                             <td className="points-cell">{row.points}</td>
                                         </tr>
+                                        {nextRow && (
+                                            <tr className={`team-divider${startsNewPositionType ? " position-separator" : ""}`} aria-hidden="true">
+                                                <td colSpan={8}>
+                                                    <span
+                                                        className="team-divider-line"
+                                                        style={{
+                                                            background: startsNewPositionType
+                                                                ? "repeating-linear-gradient(to right, var(--table-position-divider, var(--line)) 0 4px, transparent 4px 8px)"
+                                                                : "var(--table-divider, var(--line))"
+                                                        }}
+                                                    />
+                                                </td>
+                                            </tr>
+                                        )}
                                     </Fragment>
                                 );
                             })}

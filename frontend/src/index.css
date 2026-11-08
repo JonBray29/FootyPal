@@ -25,7 +25,7 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
   --team-accent-glow: rgba(199, 239, 85, .12);
   --team-accent-border: rgba(199, 239, 85, .42);
   --table-divider: rgba(255, 255, 255, .13);
-  --table-position-divider: rgba(255, 255, 255, .40);
+  --table-position-divider: var(--table-divider);
   min-height: 100vh; padding: 0 4.6vw 18px; color: var(--text); background: var(--bg); transition: background .25s, color .25s;
 }
 .app-shell.light { --bg: #f2f2ec; --surface: #fff; --surface-raised: #f6f7f1; --line: #e3e5dc; --text: #20251e; --muted: #6c7367; --faint: #92988d; --table-divider: rgba(32, 37, 30, .15); }
@@ -99,13 +99,14 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
 table { width: 100%; border-collapse: collapse; text-align: center; white-space: nowrap; table-layout: fixed; }
 thead th { position: sticky; top: 0; z-index: 2; height: 29px; border-bottom: 1px solid var(--line); color: var(--faint); background: var(--surface); font: 500 8px 'DM Mono', monospace; letter-spacing: .09em; }
 thead th.club-col { text-align: left; padding-left: 12px; }
-tbody tr { height: 32px; border-bottom: 1px solid var(--table-divider); color: var(--muted); font: 400 10px 'DM Mono', monospace; }
+tbody tr { height: 32px; color: var(--muted); font: 400 10px 'DM Mono', monospace; }
 tbody tr:last-child { border-bottom: 0; }
 tbody tr.selected-row { background: var(--accent-soft); color: var(--text); }
-tbody tr.position-group-end { border-bottom: 0; }
-tbody tr.position-separator { height: 5px; border: 0; background: transparent; }
-tbody tr.position-separator td { height: 5px; border: 0; padding: 0; background: transparent; line-height: 0; }
-tbody tr.position-separator td span { display: block; border-top: 2px dashed var(--table-position-divider); }
+tbody tr.team-divider { height: 2px; border: 0; background: transparent; }
+tbody tr.team-divider td { height: 2px; border: 0; padding: 0; background: transparent; line-height: 0; }
+tbody tr.team-divider td .team-divider-line { display: block; width: 100%; height: 2px; }
+tbody tr.team-divider.position-separator { height: 5px; }
+tbody tr.team-divider.position-separator td { height: 5px; }
 .pos-col { width: 42px; }.club-col { min-width: 142px; }.stat-col { width: 44px; }.wide-stat { width: 52px; }.pts-col { width: 52px; }
 .position-cell { position: relative; text-align: left; padding-left: 5px; }
 .position-cell > span { color: var(--muted); }
@@ -298,6 +299,7 @@ tbody tr { height: 42px; font-size: 14px; }
 .modal-close { width: 48px; height: 48px; border-radius: 9px; }
 .setting-group select { margin-top: 11px; }
 .sleep-picker-field { margin-top: 12px; }
+
 .sleep-picker-field .team-options-popover { top: auto; bottom: calc(100% + 7px); }
 .sleep-schedule-toggle { min-width: 56px; min-height: 34px; border: 1px solid var(--line); border-radius: 7px; padding: 0 11px; color: var(--muted); background: var(--surface-raised); font-size: 12px; font-weight: 600; }
 .sleep-schedule-toggle.active { border-color: var(--team-accent-border); color: var(--team-accent); background: var(--accent-soft); }
